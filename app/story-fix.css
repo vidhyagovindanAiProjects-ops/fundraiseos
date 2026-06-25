@@ -1,0 +1,2 @@
+.story-shell .drop{display:none}
+@media(max-width:760px){.story-shell .sidebar{transform:translateX(-100%)}.story-shell .sidebar.open{transform:translateX(0)}}
