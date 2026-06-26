@@ -1,4 +1,4 @@
-export type Heat="Hot"|"Warm"|"Cold";
+﻿export type Heat="Hot"|"Warm"|"Cold";
 export type LPType="Family Office"|"Fund of Funds"|"Angel Investor"|"RIA"|"Foundation";
 export type LP={id:string;initials:string;color:string;name:string;firm:string;type:LPType;status:Heat;strength:number;interest:string;interests:string[];last:string;next:string;due:string;source:string;event:string;concern:string;commitment:string;commitmentAmount:number;activity:string;meetings:{date:string,title:string,note:string}[]};
 
@@ -12,7 +12,7 @@ const groups:Record<LPType,[string,string][]>={
 const colors=["#3d4b72","#8e6358","#60776b","#817056","#536276","#745f78","#6d7651"];
 const intros=["Marcus Chen","Sarah Lin","David Mercer","Aisha Patel","Daniel Cho","Lina Ho","Rachel Kim","Priya Shah"];
 const events=["Frontier AI Summit","NVCA LP Forum","Emerging Manager Circle","Milken Global Conference","Institutional LP Dinner","SuperReturn North America"];
-const concerns=["Fund I attribution","Emerging manager risk","Portfolio concentration","Team bandwidth","Fee load","Timing before first close","Liquidity horizon"];
+const concerns=["Fund II attribution","Emerging manager risk","Portfolio concentration","Team bandwidth","Fee load","Timing before first close","Liquidity horizon"];
 const actions=["Send data room access","Share founder references","Provide track record analysis","Schedule partner meeting","Send first-close update","Add to quarterly updates"];
 const activityOptions=["Requested the fund deck","Requested founder references","Requested detailed track record","Interested after first close","Passed due to timing","Requested quarterly updates"];
 const interestSets:Record<LPType,string[][]>={

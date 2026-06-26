@@ -41,7 +41,7 @@ The Nora Ellis profile opens automatically.
 
 Say:
 
-> “Nora is now a structured LP profile. We know Maya Feldman introduced her at the ZAS Founder Dinner, she cares about applied AI and vertical SaaS, she raised Fund I attribution, and we owe her a track-record analysis by June 27.”
+> “Nora is now a structured LP profile. We know Maya Feldman introduced her at the ZAS Founder Dinner, she cares about applied AI and vertical SaaS, she raised Fund II attribution, and we owe her a track-record analysis by June 27.”
 
 Close the profile.
 
