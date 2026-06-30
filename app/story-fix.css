@@ -1,2 +1,141 @@
-.story-shell .drop{display:none}
-@media(max-width:760px){.story-shell .sidebar{transform:translateX(-100%)}.story-shell .sidebar.open{transform:translateX(0)}}
+.phase-upload-panel {
+  padding: 22px 22px 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.story-shell .phase-drop {
+  margin: 0;
+  width: 100%;
+  height: 210px;
+  border: 1.5px dashed #c8ced6;
+  background: linear-gradient(180deg, #fbfbf9, #f6f7f6);
+  cursor: pointer;
+}
+
+.phase-drop b {
+  font-size: 12px;
+  color: #303a4d;
+}
+
+.phase-drop p {
+  margin: 6px 0 2px;
+  font-size: 9px;
+  letter-spacing: .8px;
+  color: #9aa2ad;
+}
+
+.phase-drop span {
+  margin-top: 7px;
+  padding: 8px 14px;
+  border: 1px solid #d8dce0;
+  border-radius: 7px;
+  background: #fff;
+  color: #445476;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.phase-drop small {
+  margin-top: 12px;
+  font-size: 9px;
+  color: #8a929d;
+}
+
+.phase-note-input {
+  width: 100%;
+  min-height: 132px;
+  border: 1px solid #dfe2e4;
+  border-radius: 10px;
+  padding: 13px;
+  resize: vertical;
+  font: 12px/1.45 inherit;
+  color: #303846;
+  outline: none;
+}
+
+.phase-note-input:focus {
+  border-color: #8a96b0;
+  box-shadow: 0 0 0 3px #51648817;
+}
+
+.phase-file-ready {
+  display: grid;
+  grid-template-columns: 36px 1fr auto 24px;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #dde3df;
+  border-radius: 10px;
+  background: #f8fbf8;
+}
+
+.phase-file-ready > span {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #edf0f4;
+  color: #596986;
+  display: grid;
+  place-items: center;
+}
+
+.phase-file-ready svg {
+  width: 16px;
+}
+
+.phase-file-ready p {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.phase-file-ready small {
+  color: #87909b;
+  font-size: 8px;
+}
+
+.phase-file-ready b {
+  font-size: 10px;
+  color: #2d3647;
+}
+
+.phase-file-ready em {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #5f8569;
+  font-size: 9px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.phase-file-ready em svg {
+  width: 14px;
+}
+
+.phase-file-ready button {
+  border: 0;
+  background: none;
+  color: #9aa0a8;
+}
+
+.phase-upload-panel .sample-upload {
+  margin: 0;
+  width: 100%;
+}
+
+.phase-upload-error {
+  margin: 0;
+  color: #b45a42;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@media(max-width:760px){
+  .story-shell .sidebar{transform:translateX(-100%)}
+  .story-shell .sidebar.open{transform:translateX(0)}
+  .phase-file-ready{grid-template-columns:34px 1fr 24px}
+  .phase-file-ready em{grid-column:2 / 4}
+}
