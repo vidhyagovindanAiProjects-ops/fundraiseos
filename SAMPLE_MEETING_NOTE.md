@@ -1,12 +1,12 @@
-# Sample Meeting Note — Phase 1 Extraction
+# Sample Meeting Note
 
 Meeting: Nora Ellis, Redwood Family Office  
 Date: June 27, 2026  
-Introduced by Maya Feldman at the ZAS Founder Dinner.
+Introduced by Maya Feldman at the Emerging Manager Dinner.
 
-Nora is evaluating ZAS Ventures Fund II for Redwood Family Office. She is interested in applied AI, vertical SaaS, and infrastructure software. She asked for the fund deck, track record by company, ownership history, and two founder references.
+Nora is evaluating the venture fund for Redwood Family Office. She is interested in applied AI, vertical SaaS, and infrastructure software. She asked for the fund deck, track record by company, ownership history, and two founder references.
 
-Her main concern is Fund II attribution and whether the team can keep ownership targets with a concentrated seed strategy.
+Her main concern is attribution clarity and whether the team can keep ownership targets with a concentrated seed strategy.
 
 She said Redwood could consider a $750K allocation after reviewing the data room and references. Sentiment was positive, but she wants materials before her Monday partner discussion.
 

@@ -1,140 +1,50 @@
-# FundraiseOS
+# LP Brain
 
-AI-native relationship intelligence for emerging fund managers. Remember every LP conversation. Never miss the next best action.
+AI Fundraising Chief of Staff for emerging venture funds.
 
-## MVP
+## Current workflows
 
-- Passwordless email authentication with Supabase Auth, plus local demo fallback
-- Phase 1 meeting-note extraction: paste notes or upload TXT, review/edit structured AI fields, then approve into the live fundraising memory
-- Fund DNA + LP Fit Engine: paste fund materials, extract a structured fund profile, rank LPs by fit, surface objections, and draft outreach
-- Automatically generated LP profiles and 75-record demo seed
-- Fundraising memory chat with LP fit, objection handling, prioritization, and outreach-drafting prompts
-- Interactive LP → source → event → meeting → follow-up relationship graph
-- Dataset-derived fundraising health, commitments, follow-ups, and next actions
-- Responsive desktop and mobile dashboard
+- Meeting-note extraction: upload or paste notes, review/edit structured JSON, then approve into memory.
+- Fund DNA: paste fund materials, extract a structured fund profile, and approve it.
+- LP Fit Scores: every LP is ranked against the approved Fund DNA.
+- Best-Fit LPs: ranked list with fit explanations, likely objections, outreach angles, and next best action.
+- Ask Memory: grounded answers across LP profiles, Fund DNA, follow-ups, objections, and outreach drafts.
 
-Deliberately excluded: Gmail, Outlook, calendar sync, CRM integrations, automated outreach, and Affinity replacement.
+## Environment variables
 
-## Local setup
+The demo works without keys. Real AI extraction requires:
 
-1. Install dependencies:
-
-   ```bash
-   pnpm install
-   ```
-
-2. Copy `.env.example` to `.env.local`. The app runs without keys in demo mode. To enable live services, real meeting-note extraction, and real Fund DNA extraction, set:
-
-   ```env
-   NEXT_PUBLIC_SUPABASE_URL=
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=
-   SUPABASE_SERVICE_ROLE_KEY=
-   OPENAI_API_KEY=
-   OPENAI_EXTRACTION_MODEL=gpt-4o-mini
-   ```
-
-   If `OPENAI_API_KEY` is missing, meeting-note extraction and Fund DNA extraction show a clear error for real extraction and keep local demo fallbacks available.
-
-3. Start the app:
-
-   ```bash
-   pnpm dev
-   ```
-
-4. Open [http://localhost:3000](http://localhost:3000). The passwordless auth screen is at `/login`.
-
-## Phase 1 extraction workflow
-
-1. Click **Upload meeting note**.
-2. Paste a meeting note/transcript or upload a `.txt` note.
-3. Click **Extract with AI**.
-4. Review the structured JSON extraction:
-   - LP name
-   - Firm / organization
-   - Investor type
-   - Meeting date
-   - Interest areas
-   - Check size
-   - Questions asked
-   - Concerns raised
-   - Documents requested
-   - Commitment signals
-   - Next action
-   - Follow-up due date
-   - Sentiment
-   - Confidence score
-5. Edit any field.
-6. Click **Approve and update FundraiseOS**.
-7. The approved JSON updates the LP profile, follow-up tasks, activity feed, relationship graph, dashboard metrics, and Ask Memory context.
-
-For local testing without an OpenAI key, use **Use sample Nora Ellis meeting note**. See [SAMPLE_MEETING_NOTE.md](./SAMPLE_MEETING_NOTE.md) and [TEST_CASES.md](./TEST_CASES.md).
-
-## Fund DNA + LP Fit workflow
-
-1. Open **Fund DNA**.
-2. Paste fund materials or upload a TXT/Markdown memo. Include thesis, GP bio, portfolio notes, target fund size, geography, sector focus, and stage focus.
-3. Click **Create Fund DNA**.
-4. Review the structured Fund DNA JSON:
-   - fund name
-   - target fund size
-   - stage
-   - geography
-   - sector focus
-   - ideal LP types
-   - target LP check size
-   - strongest differentiators
-   - likely LP objections
-   - suggested fundraising narrative
-5. Approve the Fund DNA.
-6. FundraiseOS computes an LP Fit Score for every LP, shows **Best-Fit LPs**, explains why each LP fits, identifies likely objections, recommends outreach angles, and updates Ask Memory context.
-
-For local testing without an OpenAI key, use **Use sample ZAS Fund II materials**.
-
-## Supabase database
-
-The migration in `supabase/migrations/001_fundraiseos.sql` enables pgvector, row-level security, tenant-owned LP profiles, documents, memories, action items, and semantic memory search.
-
-To create the local database and automatically load 75 realistic LP profiles:
-
-```bash
-supabase start
-supabase db reset
+```env
+OPENAI_API_KEY=
+OPENAI_EXTRACTION_MODEL=gpt-4o-mini
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-`supabase/seed.sql` creates fifteen Family Offices, fifteen Funds of Funds, fifteen RIAs, fifteen Angel Investors, and fifteen Foundations, including introductions, events, meetings, interests, concerns, follow-up dates, and commitments.
+If `OPENAI_API_KEY` is missing, LP Brain shows a clear error and keeps demo fallback samples available.
 
-## ZAS Ventures demo path
+## Demo path
 
-Recommended AI-native story:
+1. Open the homepage.
+2. Confirm the hero says: **Raise Your Venture Fund with an AI Chief of Staff**.
+3. Open **Fund DNA**.
+4. Use the sample fund materials.
+5. Approve the Fund DNA JSON.
+6. Review **Best-Fit LPs**.
+7. Open Elena Park and review LP Fit Intelligence.
+8. Open Ask Memory and try:
+   - Which LPs are the best fit for this fund?
+   - Why is Elena Park a good match?
+   - Which LPs should the GP prioritize this week?
+   - What objections should we prepare for?
+   - Draft a first outreach email for Elena Park.
+9. Open **Upload meeting note**.
+10. Use the sample Nora Ellis meeting note.
+11. Review/edit JSON and approve the update.
 
-1. Open **Fund DNA** and click **Use sample ZAS Fund II materials**.
-2. Approve the structured Fund DNA JSON.
-3. Show **Best-Fit LPs**, then open Elena Park to show LP Fit Intelligence.
-4. Ask Memory: “Which LPs are the best fit for this fund?”
-5. Ask Memory: “Draft a first outreach email for Elena Park.”
-6. Click **Upload meeting note** -> **Use sample Nora Ellis meeting note**.
-7. Review the extracted fields and click **Approve and update FundraiseOS**.
-8. Open Relationship Graph to show Nora -> uploaded meeting note -> AI extraction -> extracted meeting -> next action.
-9. Click **Reset demo** to restore the exact 75-LP starting state.
-
-This path demonstrates: fund materials -> Fund DNA -> LP Fit Scores -> best-fit prioritization -> objection handling -> outreach drafting, while preserving meeting-note upload -> extraction -> review/edit -> approval -> LP profile -> graph update -> follow-up task -> grounded AI answer.
-
-Legacy meeting-note story:
-
-1. Open `/login` and enter any email to use local demo authentication.
-2. From the dashboard, open Elena Park to show relationship strength, meeting history, and next best action.
-3. Click **Upload meeting note** → **Use sample Nora Ellis meeting note**.
-4. Review the extracted fields and click **Approve and update FundraiseOS**.
-5. Open Relationship Graph to show Nora → uploaded meeting note → AI extraction → extracted meeting → next action.
-6. Ask Memory: “Tell me about Nora Ellis.”
-7. Click **Reset demo** to restore the exact 75-LP starting state.
-
-This path demonstrates: upload/paste → extraction → review/edit → approval → LP profile → graph update → follow-up task → grounded AI answer.
-
-## Verification
+## Build
 
 ```bash
 pnpm build
 ```
-
-Demo mode keeps all product interactions available without transmitting data. Production auth and RLS require valid Supabase credentials; production AI extraction requires an OpenAI key.
