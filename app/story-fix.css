@@ -260,12 +260,107 @@
   color: #5e786d;
 }
 
+.strategy-empty {
+  padding: 34px;
+  text-align: center;
+  color: #74808e;
+}
+
+.strategy-empty svg {
+  width: 34px;
+  color: #806c9e;
+}
+
+.strategy-empty h2 {
+  font: 400 22px var(--font-serif);
+  color: #26324f;
+  margin: 12px 0 6px;
+}
+
+.strategy-hero {
+  display: grid;
+  grid-template-columns: minmax(260px, .75fr) minmax(0, 1.25fr);
+  gap: 18px;
+  padding: 22px;
+  margin-bottom: 14px;
+}
+
+.strategy-hero span {
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: #95806f;
+  font-weight: 700;
+}
+
+.strategy-hero strong {
+  display: block;
+  font: 400 48px var(--font-serif);
+  color: #26324f;
+  margin: 5px 0;
+}
+
+.strategy-hero p {
+  font-size: 10px;
+  line-height: 1.65;
+  color: #737d8b;
+  margin: 0;
+}
+
+.strategy-score-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.strategy-score-grid div,
+.strategy-card {
+  padding: 14px;
+  background: #fbfbf9;
+  border: 1px solid #e7e8e4;
+  border-radius: 9px;
+}
+
+.strategy-score-grid b,
+.strategy-card h3 {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 8px;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: #637084;
+}
+
+.strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.strategy-card ul {
+  margin: 0;
+  padding-left: 17px;
+}
+
+.strategy-card li {
+  font-size: 9px;
+  line-height: 1.55;
+  color: #66717f;
+  margin: 5px 0;
+}
+
+.strategy-actions {
+  margin-bottom: 14px;
+}
+
 @media(max-width:760px){
   .story-shell .sidebar{transform:translateX(-100%)}
   .story-shell .sidebar.open{transform:translateX(0)}
   .phase-file-ready{grid-template-columns:34px 1fr 24px}
   .phase-file-ready em{grid-column:2 / 4}
   .fund-dna-grid{grid-template-columns:1fr}
+  .strategy-hero{grid-template-columns:1fr}
+  .strategy-score-grid,.strategy-grid{grid-template-columns:1fr}
   .fit-row{grid-template-columns:28px 34px 1fr 48px}
   .fit-row span:last-of-type{grid-column:3 / 5}
 }
