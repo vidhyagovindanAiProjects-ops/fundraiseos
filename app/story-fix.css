@@ -513,6 +513,338 @@
   grid-template-columns: repeat(5, 1fr);
 }
 
+.ai-shell {
+  background:
+    radial-gradient(circle at 18% 0%, #ffffff 0, #ffffff 18%, transparent 34%),
+    linear-gradient(180deg, #f8f8f4 0%, #f3f2ed 100%);
+}
+
+.ai-shell .sidebar {
+  background: #171c2d;
+  border-right: 1px solid #2d3346;
+}
+
+.ai-shell main > header {
+  background: rgba(255,255,252,.82);
+  backdrop-filter: blur(18px);
+}
+
+.ai-page {
+  max-width: 1240px;
+  padding-top: 42px;
+}
+
+.ai-page .panel {
+  border-color: #e8e6df;
+  border-radius: 18px;
+  box-shadow: 0 18px 60px #2328160a;
+}
+
+.ai-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: end;
+  padding: 34px;
+  margin-bottom: 18px;
+  background: linear-gradient(135deg, #ffffff 0%, #fbfaf6 55%, #f3f1ea 100%);
+}
+
+.ai-hero span,
+.chief-card label {
+  font-size: 9px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: #8e775c;
+  font-weight: 800;
+}
+
+.ai-hero h1 {
+  max-width: 760px;
+  margin: 10px 0 12px;
+  font: 400 48px/.98 var(--font-serif);
+  letter-spacing: -1.6px;
+  color: #171d2f;
+}
+
+.ai-hero p {
+  max-width: 720px;
+  margin: 0;
+  color: #667083;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.ai-hero-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.chief-grid {
+  display: grid;
+  grid-template-columns: 1.35fr .85fr .9fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.chief-grid.compact {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.chief-card {
+  padding: 24px;
+  min-height: 250px;
+}
+
+.chief-card h2 {
+  margin: 10px 0 14px;
+  font: 400 31px/1.08 var(--font-serif);
+  color: #1c2337;
+  letter-spacing: -.5px;
+}
+
+.chief-card p {
+  margin: 10px 0;
+  color: #687384;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.chief-card p b {
+  color: #293246;
+}
+
+.chief-card button,
+.engine-open {
+  margin-top: 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #202942;
+  color: #fff;
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.primary-chief {
+  background: linear-gradient(135deg, #ffffff, #f9f8f1);
+}
+
+.readiness-card h2 {
+  font-size: 44px;
+}
+
+.readiness-card figure,
+.executive-health figure {
+  height: 7px;
+  margin: 12px 0 18px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: #ecece6;
+}
+
+.readiness-card figure i,
+.executive-health figure i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #293653, #7d8f76);
+}
+
+.readiness-copy b {
+  display: block;
+  margin-top: 12px;
+  font-size: 9px;
+  color: #354158;
+  text-transform: uppercase;
+  letter-spacing: .9px;
+}
+
+.workspace-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, .82fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.workspace-columns.lower {
+  grid-template-columns: minmax(360px, .82fr) minmax(0, 1fr);
+}
+
+.action-stack {
+  overflow: hidden;
+}
+
+.action-stack .panel-head {
+  min-height: 78px;
+  padding-inline: 22px;
+}
+
+.action-card,
+.prep-card,
+.briefing-row {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid #f0eee8;
+  background: #fff;
+  display: grid;
+  text-align: left;
+  align-items: start;
+  gap: 14px;
+  padding: 17px 22px;
+}
+
+.action-card {
+  grid-template-columns: 40px 1fr auto;
+}
+
+.action-card:hover,
+.prep-card:hover {
+  background: #fbfaf6;
+}
+
+.action-card b,
+.prep-card b,
+.briefing-row b {
+  font-size: 13px;
+  color: #20283b;
+}
+
+.action-card small,
+.prep-card small,
+.briefing-row small {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  color: #8992a0;
+}
+
+.action-card p,
+.prep-card p {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #677283;
+  line-height: 1.55;
+}
+
+.action-card em {
+  font-style: normal;
+  font-size: 11px;
+  color: #4f684f;
+  background: #eef3eb;
+  border-radius: 999px;
+  padding: 6px 10px;
+}
+
+.prep-card {
+  grid-template-columns: 30px 1fr;
+}
+
+.prep-card.static {
+  border-left: 0;
+}
+
+.prep-card > svg {
+  width: 20px;
+  color: #6c7890;
+  margin-top: 2px;
+}
+
+.briefing-row {
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+}
+
+.briefing-row > svg {
+  width: 17px;
+  height: 17px;
+  color: #66758f;
+}
+
+.briefing-row p {
+  margin: 0;
+}
+
+.briefing-row span {
+  font-size: 10px;
+  color: #7d8795;
+}
+
+.briefing-row span.overdue {
+  color: #b75b42;
+  font-weight: 700;
+}
+
+.ai-signal {
+  padding: 16px 22px;
+}
+
+.ai-engines {
+  margin-top: 16px;
+  overflow: hidden;
+}
+
+.engine-grid {
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.engine-grid details {
+  border: 1px solid #ebe8df;
+  border-radius: 14px;
+  background: #fffdfa;
+  overflow: hidden;
+}
+
+.engine-grid summary {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+  cursor: pointer;
+  color: #222b42;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.engine-grid summary svg {
+  width: 18px;
+  color: #77689e;
+}
+
+.engine-grid summary span {
+  margin-left: auto;
+  color: #7a8493;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.engine-grid details > :not(summary) {
+  margin: 14px;
+}
+
+.workspace-mini {
+  margin-top: 16px;
+  overflow: hidden;
+}
+
+.knowledge-engines .engine-grid details > section,
+.knowledge-engines .engine-grid details > div {
+  box-shadow: none;
+}
+
+.executive-health span:last-child {
+  color: #c5cce0;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
 @media(max-width:760px){
   .story-shell .sidebar{transform:translateX(-100%)}
   .story-shell .sidebar.open{transform:translateX(0)}
@@ -527,4 +859,12 @@
   .opportunity-insights{grid-template-columns:1fr}
   .fit-row{grid-template-columns:28px 34px 1fr 48px}
   .fit-row span:last-of-type{grid-column:3 / 5}
+  .ai-page{padding-top:24px}
+  .ai-hero{grid-template-columns:1fr;padding:24px}
+  .ai-hero h1{font-size:34px}
+  .ai-hero-actions{flex-direction:column;align-items:stretch}
+  .chief-grid,.chief-grid.compact,.workspace-columns,.workspace-columns.lower{grid-template-columns:1fr}
+  .chief-card{min-height:0}
+  .action-card{grid-template-columns:36px 1fr}
+  .action-card em{grid-column:2}
 }
