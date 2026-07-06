@@ -1017,6 +1017,7 @@ function DashboardView({ profiles, tasks, feed, metrics, latestUploadId, fundDNA
   const topAction = strategy?.aiPriorities[0];
   const recommendedAction = autonomous[0]?.title || topAction?.title || uploaded?.next || openTasks[0]?.title || "Review top LP conversations";
   const recommendedReason = autonomous[0]?.why || topAction?.reason || (uploaded ? `${uploaded.name}'s meeting note was just added to memory and created a follow-up.` : metrics.overdue ? `${metrics.overdue} overdue follow-up is reducing fundraising momentum.` : "Strong LP alignment and meeting cadence create a window to push warm conversations forward.");
+  const pilotChecklist = ["Upload fund deck", "Upload LP spreadsheet", "Approve Fund DNA", "Review Best-Fit LPs", "Review Discover Investors", "Review Today's Actions", "Submit feedback"];
   return <>
     <section className="ai-hero panel">
       <div>
@@ -1030,6 +1031,20 @@ function DashboardView({ profiles, tasks, feed, metrics, latestUploadId, fundDNA
         <button className="ask" onClick={openChat}><Sparkles />Ask Memory</button>
         <button className="primary" onClick={openUpload}><Plus /><span>Upload meeting note</span></button>
       </div>
+    </section>
+
+    <section className="panel pilot-mode-card">
+      <div className="panel-head">
+        <div>
+          <h2>Pilot Mode</h2>
+          <p>Use this checklist to get a pilot workspace ready for a real fund review.</p>
+        </div>
+        <span>Pilot readiness</span>
+      </div>
+      <div className="pilot-checklist">
+        {pilotChecklist.map((item, i) => <div key={item} className="pilot-check-item"><span>{i + 1}</span><p>{item}</p></div>)}
+      </div>
+      <p className="pilot-mode-note">LP Brain uses demo data unless you upload your own fund materials or connect a provider.</p>
     </section>
 
     {workspaceMode === "My Fund Workspace" && onboardingSummary && <section className="panel onboarding-live-summary">

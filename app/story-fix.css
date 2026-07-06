@@ -1178,6 +1178,75 @@
   font-weight: 700;
 }
 
+.pilot-mode-card {
+  display: grid;
+  gap: 16px;
+}
+
+.pilot-mode-card .panel-head {
+  padding: 0;
+}
+
+.pilot-mode-card .panel-head > span {
+  width: max-content;
+  border-radius: 999px;
+  border: 1px solid #e8e2d5;
+  background: #fffaf1;
+  padding: 7px 10px;
+  color: #7b664f;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.pilot-checklist {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pilot-check-item {
+  display: grid;
+  gap: 9px;
+  align-content: start;
+  min-height: 112px;
+  border: 1px solid #ece8df;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fffdfa, #f8faf8);
+  padding: 12px;
+}
+
+.pilot-check-item span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #141a24;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.pilot-check-item p {
+  margin: 0;
+  color: #30394b;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.pilot-mode-note {
+  margin: 0;
+  border-radius: 14px;
+  background: #f7f3ea;
+  padding: 12px 14px;
+  color: #756b5e;
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .feedback-modal {
   width: min(680px, calc(100vw - 28px));
 }
@@ -1817,6 +1886,7 @@
   .signal-card{grid-template-columns:1fr}
   .onboarding-summary-grid{grid-template-columns:1fr}
   .onboarding-modal{width:calc(100vw - 18px)}
-  .outcome-metrics,.outcome-grid,.integration-hero,.integration-hero>div:last-child,.integration-grid,.discovery-chief-grid,.discovery-insight-grid,.discovery-empty,.discovery-queue article,.provider-grid{grid-template-columns:1fr}
+  .outcome-metrics,.outcome-grid,.integration-hero,.integration-hero>div:last-child,.integration-grid,.discovery-chief-grid,.discovery-insight-grid,.discovery-empty,.discovery-queue article,.provider-grid,.pilot-checklist{grid-template-columns:1fr}
+  .pilot-check-item{min-height:0;grid-template-columns:28px 1fr;align-items:center}
   .discovery-queue aside{border-left:0;border-top:1px solid #ecebe7;padding:12px 0 0}
 }
