@@ -1702,6 +1702,95 @@
   font-weight: 900;
 }
 
+.provider-layer {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.provider-grid article {
+  border: 1px solid #ece8df;
+  border-radius: 14px;
+  background: #fffdfa;
+  padding: 13px;
+  display: grid;
+  gap: 7px;
+}
+
+.provider-grid b {
+  font-size: 11px;
+  color: #273044;
+}
+
+.provider-grid em,
+.provider-pill,
+.provider-disclosure span {
+  width: max-content;
+  border-radius: 999px;
+  background: #f4efe4;
+  color: #80633c;
+  padding: 4px 7px;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.provider-grid em.connected,
+.provider-grid em.demo-active {
+  background: #edf5ee;
+  color: #55755b;
+}
+
+.provider-grid em.not-connected {
+  background: #f3f4f6;
+  color: #7a8290;
+}
+
+.provider-grid p,
+.provider-grid small,
+.provider-disclosure {
+  margin: 0;
+  color: #6f7988;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.provider-disclosure {
+  border: 1px solid #ece8df;
+  border-radius: 12px;
+  background: #fffdfa;
+  padding: 10px 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.provider-pill {
+  display: inline-block;
+  margin: 7px 0 3px;
+  background: #edf1fb;
+  color: #53658d;
+}
+
+.manual-lp-modal {
+  width: min(720px, calc(100vw - 24px));
+}
+
+.manual-provider-form {
+  padding: 22px;
+  display: grid;
+  gap: 12px;
+  max-height: 62vh;
+  overflow: auto;
+}
+
 @media(max-width:760px){
   .story-shell .sidebar{transform:translateX(-100%)}
   .story-shell .sidebar.open{transform:translateX(0)}
@@ -1728,6 +1817,6 @@
   .signal-card{grid-template-columns:1fr}
   .onboarding-summary-grid{grid-template-columns:1fr}
   .onboarding-modal{width:calc(100vw - 18px)}
-  .outcome-metrics,.outcome-grid,.integration-hero,.integration-hero>div:last-child,.integration-grid,.discovery-chief-grid,.discovery-insight-grid,.discovery-empty,.discovery-queue article{grid-template-columns:1fr}
+  .outcome-metrics,.outcome-grid,.integration-hero,.integration-hero>div:last-child,.integration-grid,.discovery-chief-grid,.discovery-insight-grid,.discovery-empty,.discovery-queue article,.provider-grid{grid-template-columns:1fr}
   .discovery-queue aside{border-left:0;border-top:1px solid #ecebe7;padding:12px 0 0}
 }
