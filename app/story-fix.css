@@ -1165,6 +1165,66 @@
   border-top: 1px solid #f0eee8;
 }
 
+.onboarding-note {
+  margin-top: 14px !important;
+  width: max-content;
+  max-width: 100%;
+  border: 1px solid #eee7d8;
+  border-radius: 999px;
+  background: #fffaf1;
+  padding: 9px 12px;
+  color: #7b664f !important;
+  font-size: 12px !important;
+  font-weight: 700;
+}
+
+.feedback-modal {
+  width: min(680px, calc(100vw - 28px));
+}
+
+.feedback-questions {
+  padding: 22px;
+  display: grid;
+  gap: 12px;
+}
+
+.feedback-questions label {
+  display: grid;
+  gap: 7px;
+}
+
+.feedback-questions span {
+  font-size: 11px;
+  color: #30394b;
+  font-weight: 800;
+}
+
+.feedback-questions textarea {
+  min-height: 64px;
+  resize: vertical;
+  border: 1px solid #e5e2dc;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: 11px/1.5 var(--font-sans);
+  color: #354052;
+  background: #fffdfa;
+}
+
+.float-feedback {
+  position: fixed;
+  right: 18px;
+  bottom: 74px;
+  z-index: 40;
+  border: 1px solid #e9e1d2;
+  border-radius: 999px;
+  background: #fffaf1;
+  color: #6f5841;
+  padding: 11px 15px;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 12px 30px rgba(26, 31, 44, .12);
+}
+
 @media(max-width:760px){
   .story-shell .sidebar{transform:translateX(-100%)}
   .story-shell .sidebar.open{transform:translateX(0)}
