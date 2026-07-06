@@ -1058,6 +1058,113 @@
   line-height: 1.5;
 }
 
+.workspace-switch {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin: 10px 0 16px;
+}
+
+.workspace-switch button {
+  border: 1px solid #ece8dd;
+  border-radius: 10px;
+  background: #fffaf2;
+  color: #6d7280;
+  padding: 9px 10px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.workspace-switch button.on {
+  background: #1f2738;
+  color: #fff;
+  border-color: #1f2738;
+}
+
+.onboarding-modal {
+  width: min(1040px, calc(100vw - 28px));
+}
+
+.onboarding-flow,
+.onboarding-review {
+  padding: 22px;
+  display: grid;
+  gap: 14px;
+  max-height: 66vh;
+  overflow: auto;
+}
+
+.onboarding-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.onboarding-steps span {
+  border: 1px solid #eee9df;
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: #7b8390;
+  background: #fffdf8;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.onboarding-steps span.on {
+  background: #eef3eb;
+  color: #526f55;
+  border-color: #dfe9db;
+}
+
+.onboarding-files {
+  display: grid;
+  gap: 6px;
+}
+
+.onboarding-files p,
+.onboarding-next-actions p {
+  margin: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #566173;
+  font-size: 11px;
+}
+
+.onboarding-files svg,
+.onboarding-next-actions svg {
+  width: 14px;
+  color: #6d7651;
+}
+
+.crm-input {
+  min-height: 96px;
+}
+
+.onboarding-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.onboarding-live-summary {
+  display: grid;
+  gap: 16px;
+}
+
+.onboarding-result .dna-card {
+  min-height: 0;
+}
+
+.onboarding-lists {
+  align-items: stretch;
+}
+
+.onboarding-lists .briefing-row {
+  border-top: 1px solid #f0eee8;
+}
+
 @media(max-width:760px){
   .story-shell .sidebar{transform:translateX(-100%)}
   .story-shell .sidebar.open{transform:translateX(0)}
@@ -1082,4 +1189,6 @@
   .action-card em{grid-column:2}
   .autonomous-grid{grid-template-columns:1fr}
   .signal-card{grid-template-columns:1fr}
+  .onboarding-summary-grid{grid-template-columns:1fr}
+  .onboarding-modal{width:calc(100vw - 18px)}
 }

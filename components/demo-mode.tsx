@@ -45,6 +45,19 @@ type OpportunityOutcome = { status: OpportunityStatus; reason: OpportunityReason
 type FundraisingSignal = { label: "warming up" | "cooling down" | "high intent" | "needs follow-up" | "likely commitment" | "inactive"; reason: string; confidence: number };
 type TimelineEvent = { kind: "Meeting" | "Email" | "Introduction" | "Data room access" | "Questions" | "Objections" | "Follow-up" | "Commitment" | "Next action"; title: string; detail: string; date: string };
 type AutonomousRecommendation = { title: string; why: string; impact: string; confidence: number; action: string; lpId?: string };
+type WorkspaceMode = "Demo Workspace" | "My Fund Workspace";
+type OnboardingSummary = {
+  fundDNA: FundDNA;
+  profiles: LP[];
+  tasks: Task[];
+  feed: Feed[];
+  importedLPs: number;
+  meetingsDetected: number;
+  opportunitiesGenerated: number;
+  missingInformation: string[];
+  recommendedActions: string[];
+  files: string[];
+};
 type LPOpportunity = {
   id: string;
   name: string;
@@ -135,6 +148,18 @@ const demoFundDNA: FundDNA = {
   confidenceScore: 0.92,
 };
 
+const sampleExistingLPCsv = `Name,Firm,Type,Stage,Interest,Concern,Next Action,Check Size,Last Contact,Intro Source
+Amara Singh,Blue Oak Family Office,Family Office,Diligence,Applied AI and vertical SaaS,Attribution clarity,Send data room access,$500K,2026-06-28,Portfolio Founder
+Julian Hart,Keystone Venture Access,Fund of Funds,First meeting,Emerging managers and seed funds,Track record depth,Schedule partner meeting,$1M,2026-06-25,Emerging Manager Circle
+Maya Feldman,Independent Angel,Angel Investor,Soft circle,Developer tools and founder-led funds,Allocation size,Share founder references,$250K,2026-06-27,Founder referral
+Priyanka Rao,Meridian Private Wealth,RIA,Contacted,Private markets and B2B software,Client suitability,Send first-close update,$300K,2026-06-21,Advisor network
+David Mercer,Hawthorne Endowment,Foundation,Diligence,Responsible AI and mission alignment,Governance proof points,Provide track record analysis,$750K,2026-06-24,Allocator Forum`;
+
+const sampleOnboardingMaterials = `${sampleFundMaterials}
+
+Existing CRM export:
+${sampleExistingLPCsv}`;
+
 export function DemoMode() {
   const [screen, setScreen] = useState<Screen>("Home");
   const [profiles, setProfiles] = useState<LP[]>(demoLPs);
@@ -149,6 +174,9 @@ export function DemoMode() {
   const [latestUploadId, setLatestUploadId] = useState<string | null>(null);
   const [fundDNA, setFundDNA] = useState<FundDNA | null>(null);
   const [opportunityOutcomes, setOpportunityOutcomes] = useState<Record<string, OpportunityOutcome>>({});
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("Demo Workspace");
+  const [onboarding, setOnboarding] = useState(false);
+  const [myWorkspace, setMyWorkspace] = useState<OnboardingSummary | null>(null);
   const fitResults = useMemo(() => computeFits(profiles, fundDNA), [profiles, fundDNA]);
   const bestFits = useMemo(() => rankedFits(profiles, fitResults), [profiles, fitResults]);
   const strategy = useMemo(() => fundDNA ? generateFundraisingStrategy(fundDNA, profiles, tasks, fitResults) : null, [fundDNA, profiles, tasks, fitResults]);
@@ -171,7 +199,42 @@ export function DemoMode() {
 
   const go = (s: Screen) => { setScreen(s); setMenu(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const notify = (message: string) => { setToast(message); setTimeout(() => setToast(""), 2200); };
-  const reset = () => { setProfiles(demoLPs); setTasks(initialTasks); setFeed(initialFeed); setLatestUploadId(null); setFundDNA(null); setOpportunityOutcomes({}); setSelected(null); setChat(false); setUpload(false); setQuery(""); setScreen("Home"); notify("Demo reset to starting state"); };
+  const reset = () => { setWorkspaceMode("Demo Workspace"); setProfiles(demoLPs); setTasks(initialTasks); setFeed(initialFeed); setLatestUploadId(null); setFundDNA(null); setOpportunityOutcomes({}); setSelected(null); setChat(false); setUpload(false); setOnboarding(false); setQuery(""); setScreen("Home"); notify("Demo reset to starting state"); };
+  const switchWorkspace = (mode: WorkspaceMode) => {
+    setWorkspaceMode(mode);
+    setSelected(null);
+    if (mode === "Demo Workspace" || !myWorkspace) {
+      setProfiles(demoLPs);
+      setTasks(initialTasks);
+      setFeed(initialFeed);
+      setFundDNA(null);
+      setLatestUploadId(null);
+      setOpportunityOutcomes({});
+      notify("Switched to Demo Workspace");
+    } else {
+      setProfiles(myWorkspace.profiles);
+      setTasks(myWorkspace.tasks);
+      setFeed(myWorkspace.feed);
+      setFundDNA(myWorkspace.fundDNA);
+      setLatestUploadId(myWorkspace.profiles[0]?.id || null);
+      setOpportunityOutcomes({});
+      notify("Switched to My Fund Workspace");
+    }
+    setScreen("Home");
+  };
+  const saveOnboarding = (summary: OnboardingSummary) => {
+    setMyWorkspace(summary);
+    setWorkspaceMode("My Fund Workspace");
+    setProfiles(summary.profiles);
+    setTasks(summary.tasks);
+    setFeed(summary.feed);
+    setFundDNA(summary.fundDNA);
+    setLatestUploadId(summary.profiles[0]?.id || null);
+    setOpportunityOutcomes({});
+    setOnboarding(false);
+    setScreen("Home");
+    notify("My Fund Workspace created from imported fundraising materials");
+  };
 
   const approveExtraction = (extraction: Extraction, rawText: string) => {
     const lp = lpFromExtraction(extraction, rawText, profiles);
@@ -193,7 +256,7 @@ export function DemoMode() {
   const nav: [Screen, typeof Home][] = [["Home", Home], ["LP Pipeline", Users], ["Meetings", LayoutList], ["Knowledge", BrainCircuit], ["Settings", Settings]];
   const readiness = strategy?.readinessScore.score || metrics.score;
   const activeNav = (label: Screen) => screen === label || (label === "Home" && ["Fund DNA", "Fundraising Strategy", "LP Opportunities", "Relationship Graph"].includes(screen));
-  return <div className="shell demo-shell story-shell ai-shell"><aside className={`sidebar ${menu ? "open" : ""}`}><div className="brand"><b>LP</b><span>LP <em>Brain</em></span></div><button className="close-menu" aria-label="Close menu" onClick={() => setMenu(false)}><X /></button><div className="demo-badge"><i />AI CHIEF OF STAFF</div><p className="nav-title">Workspace</p><nav>{nav.map(([label, Icon]) => <button key={label} className={activeNav(label) ? "active" : ""} onClick={() => go(label)}><Icon /><span>{label}</span>{label === "LP Pipeline" && <i>{metrics.total}</i>}{label === "Meetings" && <i>{metrics.open}</i>}{label === "Home" && <i>{readiness}</i>}</button>)}</nav><button className="health executive-health" onClick={() => go("Home")}><div><Target /><span>Fundraising Readiness</span><b>{readiness}/100</b></div><figure><i style={{ width: `${readiness}%` }} /></figure><p>{autonomous[0]?.why || (strategy ? strategy.aiPriorities[0]?.reason : metrics.overdue ? `${metrics.overdue} overdue follow-up reducing score.` : "Strong LP alignment and healthy meeting cadence.")}</p><span>Recommended action: {autonomous[0]?.action || strategy?.aiPriorities[0]?.title || "Complete the Elena Park follow-up today."}</span></button><div className="story-user"><span>LP</span><p><b>LP Brain</b><small>AI Fundraising Chief of Staff</small></p></div></aside>{menu && <div className="scrim" onClick={() => setMenu(false)} />}<main><header><button className="hamb" aria-label="Open menu" onClick={() => setMenu(true)}><Menu /></button><div className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => go("LP Pipeline")} placeholder="Search LPs, firms, interests..." /></div><div className="head-actions"><span className="live-state"><i />Autonomous memory</span><button className="reset-demo" onClick={reset}>Reset demo</button><button className="primary" onClick={() => setUpload(true)}><Plus /><span>Upload meeting note</span></button></div></header><div className="page demo-page ai-page">{screen === "Home" && <DashboardView profiles={profiles} tasks={tasks} feed={feed} metrics={metrics} latestUploadId={latestUploadId} fundDNA={fundDNA} strategy={strategy} bestFits={bestFits} go={go} openLP={setSelected} openChat={() => setChat(true)} openUpload={() => setUpload(true)} signals={signals} forecast={forecast} autonomous={autonomous} fitResults={fitResults} />} {screen === "LP Pipeline" && <PipelineWorkspace profiles={profiles} query={query} fitResults={fitResults} opportunities={opportunities} outcomes={opportunityOutcomes} openLP={setSelected} go={go} signals={signals} />} {screen === "Meetings" && <MeetingsWorkspace profiles={profiles} tasks={tasks} feed={feed} openUpload={() => setUpload(true)} toggle={(id) => setTasks((t) => t.map((x) => x.id === id ? { ...x, done: !x.done } : x))} />} {screen === "Knowledge" && <KnowledgeWorkspace profiles={profiles} latestUploadId={latestUploadId} fundDNA={fundDNA} strategy={strategy} bestFits={bestFits} fitResults={fitResults} opportunities={opportunities} outcomes={opportunityOutcomes} saveDNA={saveDNA} setOutcome={(id, outcome) => setOpportunityOutcomes((current) => ({ ...current, [id]: outcome }))} openLP={setSelected} openChat={() => setChat(true)} go={go} />} {screen === "Settings" && <SettingsWorkspace reset={reset} openChat={() => setChat(true)} openUpload={() => setUpload(true)} />} {screen === "Fund DNA" && <FundDNAView profiles={profiles} fundDNA={fundDNA} fitResults={fitResults} saveDNA={saveDNA} openLP={setSelected} openChat={() => setChat(true)} />} {screen === "Fundraising Strategy" && <StrategyView strategy={strategy} fundDNA={fundDNA} bestFits={bestFits} go={go} openLP={setSelected} openChat={() => setChat(true)} />} {screen === "LP Opportunities" && <OpportunitiesView fundDNA={fundDNA} strategy={strategy} opportunities={opportunities} outcomes={opportunityOutcomes} setOutcome={(id, outcome) => setOpportunityOutcomes((current) => ({ ...current, [id]: outcome }))} openChat={() => setChat(true)} />} {screen === "LP Directory" && <Directory profiles={profiles} query={query} fitResults={fitResults} openLP={setSelected} />} {screen === "Follow-ups" && <Followups profiles={profiles} tasks={tasks} toggle={(id) => setTasks((t) => t.map((x) => x.id === id ? { ...x, done: !x.done } : x))} />} {screen === "Relationship Graph" && <Graph profiles={profiles} latestUploadId={latestUploadId} openChat={() => setChat(true)} />}</div></main><button className="float-chat always" onClick={() => setChat(true)}><Sparkles />Ask memory</button>{upload && <Upload close={() => setUpload(false)} approve={approveExtraction} />} {selected && <Profile lp={selected} fit={fitResults[selected.id]} signal={signals[selected.id]} timeline={timelineForLP(selected, tasks, fitResults[selected.id])} artifacts={autonomousArtifacts(selected, fitResults[selected.id], fundDNA)} close={() => setSelected(null)} openChat={() => { setSelected(null); setChat(true); }} />} {chat && <Chat profiles={profiles} tasks={tasks} fundDNA={fundDNA} strategy={strategy} opportunities={opportunities} outcomes={opportunityOutcomes} fitResults={fitResults} close={() => setChat(false)} />} {toast && <div className="toast"><Check />{toast}</div>}</div>;
+  return <div className="shell demo-shell story-shell ai-shell"><aside className={`sidebar ${menu ? "open" : ""}`}><div className="brand"><b>LP</b><span>LP <em>Brain</em></span></div><button className="close-menu" aria-label="Close menu" onClick={() => setMenu(false)}><X /></button><div className="demo-badge"><i />AI CHIEF OF STAFF</div><p className="nav-title">Workspace</p><div className="workspace-switch"><button className={workspaceMode === "Demo Workspace" ? "on" : ""} onClick={() => switchWorkspace("Demo Workspace")}>Demo Workspace</button><button className={workspaceMode === "My Fund Workspace" ? "on" : ""} onClick={() => myWorkspace ? switchWorkspace("My Fund Workspace") : setOnboarding(true)}>My Fund Workspace</button></div><nav>{nav.map(([label, Icon]) => <button key={label} className={activeNav(label) ? "active" : ""} onClick={() => go(label)}><Icon /><span>{label}</span>{label === "LP Pipeline" && <i>{metrics.total}</i>}{label === "Meetings" && <i>{metrics.open}</i>}{label === "Home" && <i>{readiness}</i>}</button>)}</nav><button className="health executive-health" onClick={() => go("Home")}><div><Target /><span>Fundraising Readiness</span><b>{readiness}/100</b></div><figure><i style={{ width: `${readiness}%` }} /></figure><p>{autonomous[0]?.why || (strategy ? strategy.aiPriorities[0]?.reason : metrics.overdue ? `${metrics.overdue} overdue follow-up reducing score.` : "Strong LP alignment and healthy meeting cadence.")}</p><span>Recommended action: {autonomous[0]?.action || strategy?.aiPriorities[0]?.title || "Complete the Elena Park follow-up today."}</span></button><div className="story-user"><span>LP</span><p><b>LP Brain</b><small>{workspaceMode}</small></p></div></aside>{menu && <div className="scrim" onClick={() => setMenu(false)} />}<main><header><button className="hamb" aria-label="Open menu" onClick={() => setMenu(true)}><Menu /></button><div className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => go("LP Pipeline")} placeholder="Search LPs, firms, interests..." /></div><div className="head-actions"><span className="live-state"><i />{workspaceMode}</span><button className="reset-demo" onClick={() => setOnboarding(true)}>Onboard fund</button><button className="reset-demo" onClick={reset}>Reset demo</button><button className="primary" onClick={() => setUpload(true)}><Plus /><span>Upload meeting note</span></button></div></header><div className="page demo-page ai-page">{screen === "Home" && <DashboardView profiles={profiles} tasks={tasks} feed={feed} metrics={metrics} latestUploadId={latestUploadId} fundDNA={fundDNA} strategy={strategy} bestFits={bestFits} go={go} openLP={setSelected} openChat={() => setChat(true)} openUpload={() => setUpload(true)} openOnboarding={() => setOnboarding(true)} workspaceMode={workspaceMode} onboardingSummary={myWorkspace} signals={signals} forecast={forecast} autonomous={autonomous} fitResults={fitResults} />} {screen === "LP Pipeline" && <PipelineWorkspace profiles={profiles} query={query} fitResults={fitResults} opportunities={opportunities} outcomes={opportunityOutcomes} openLP={setSelected} go={go} signals={signals} />} {screen === "Meetings" && <MeetingsWorkspace profiles={profiles} tasks={tasks} feed={feed} openUpload={() => setUpload(true)} toggle={(id) => setTasks((t) => t.map((x) => x.id === id ? { ...x, done: !x.done } : x))} />} {screen === "Knowledge" && <KnowledgeWorkspace profiles={profiles} latestUploadId={latestUploadId} fundDNA={fundDNA} strategy={strategy} bestFits={bestFits} fitResults={fitResults} opportunities={opportunities} outcomes={opportunityOutcomes} saveDNA={saveDNA} setOutcome={(id, outcome) => setOpportunityOutcomes((current) => ({ ...current, [id]: outcome }))} openLP={setSelected} openChat={() => setChat(true)} go={go} />} {screen === "Settings" && <SettingsWorkspace reset={reset} openChat={() => setChat(true)} openUpload={() => setUpload(true)} openOnboarding={() => setOnboarding(true)} workspaceMode={workspaceMode} />} {screen === "Fund DNA" && <FundDNAView profiles={profiles} fundDNA={fundDNA} fitResults={fitResults} saveDNA={saveDNA} openLP={setSelected} openChat={() => setChat(true)} />} {screen === "Fundraising Strategy" && <StrategyView strategy={strategy} fundDNA={fundDNA} bestFits={bestFits} go={go} openLP={setSelected} openChat={() => setChat(true)} />} {screen === "LP Opportunities" && <OpportunitiesView fundDNA={fundDNA} strategy={strategy} opportunities={opportunities} outcomes={opportunityOutcomes} setOutcome={(id, outcome) => setOpportunityOutcomes((current) => ({ ...current, [id]: outcome }))} openChat={() => setChat(true)} />} {screen === "LP Directory" && <Directory profiles={profiles} query={query} fitResults={fitResults} openLP={setSelected} />} {screen === "Follow-ups" && <Followups profiles={profiles} tasks={tasks} toggle={(id) => setTasks((t) => t.map((x) => x.id === id ? { ...x, done: !x.done } : x))} />} {screen === "Relationship Graph" && <Graph profiles={profiles} latestUploadId={latestUploadId} openChat={() => setChat(true)} />}</div></main><button className="float-chat always" onClick={() => setChat(true)}><Sparkles />Ask memory</button>{upload && <Upload close={() => setUpload(false)} approve={approveExtraction} />} {onboarding && <FundOnboarding close={() => setOnboarding(false)} save={saveOnboarding} />} {selected && <Profile lp={selected} fit={fitResults[selected.id]} signal={signals[selected.id]} timeline={timelineForLP(selected, tasks, fitResults[selected.id])} artifacts={autonomousArtifacts(selected, fitResults[selected.id], fundDNA)} close={() => setSelected(null)} openChat={() => { setSelected(null); setChat(true); }} />} {chat && <Chat profiles={profiles} tasks={tasks} fundDNA={fundDNA} strategy={strategy} opportunities={opportunities} outcomes={opportunityOutcomes} fitResults={fitResults} close={() => setChat(false)} />} {toast && <div className="toast"><Check />{toast}</div>}</div>;
 }
 
 function sameLP(a: LP, b: LP) { return a.name.toLowerCase() === b.name.toLowerCase() || (a.firm.toLowerCase() === b.firm.toLowerCase() && a.name.split(" ")[0].toLowerCase() === b.name.split(" ")[0].toLowerCase()); }
@@ -215,6 +278,102 @@ function fitForLP(lp: LP, dna: FundDNA): LPFit { const typeFit = dna.idealLPType
 function computeFits(profiles: LP[], dna: FundDNA | null) { if (!dna) return {}; return Object.fromEntries(profiles.map((lp) => [lp.id, fitForLP(lp, dna)])); }
 function rankedFits(profiles: LP[], fits: Record<string, LPFit>) { return profiles.map((lp) => ({ lp, fit: fits[lp.id] })).filter((x): x is { lp: LP; fit: LPFit } => !!x.fit).sort((a, b) => b.fit.score - a.fit.score); }
 function lpFromExtraction(extraction: Extraction, rawText: string, existing: LP[]): LP { const commitmentAmount = parseAmount(extraction.checkSize || extraction.commitmentSignals); const existingLP = existing.find((x) => x.name.toLowerCase() === extraction.lpName.toLowerCase()); const id = existingLP?.id || `lp-uploaded-${Date.now()}`; return { id, initials: initials(extraction.lpName), color: existingLP?.color || "#3d4b72", name: extraction.lpName || "Unknown LP", firm: extraction.firm || "Unknown organization", type: extraction.investorType, status: statusFromExtraction(extraction), strength: strengthFromExtraction(extraction), interest: extraction.interestAreas.join(", ") || "Needs qualification", interests: extraction.interestAreas, last: displayDate(extraction.meetingDate), next: extraction.nextAction || "Review extracted meeting note", due: dueLabel(extraction.followUpDueDate), source: "Uploaded meeting note", event: "AI extraction", concern: extraction.concernsRaised[0] || "No major concern captured", commitment: commitmentAmount ? `${extraction.checkSize || money(commitmentAmount)} signal - ${extraction.commitmentSignals || "diligence pending"}` : extraction.commitmentSignals || "No commitment yet", commitmentAmount, activity: extraction.documentsRequested.length ? `Requested ${extraction.documentsRequested.join(", ")}` : extraction.summary || "Meeting note extracted", meetings: [{ date: displayDate(extraction.meetingDate), title: "AI-extracted meeting note", note: extraction.summary || rawText.slice(0, 220) }, ...(existingLP?.meetings || [])] }; }
+
+function inferFundDNA(materials: string, files: string[]): FundDNA {
+  const low = materials.toLowerCase();
+  const sectors = ["Applied AI", "Vertical SaaS", "Infrastructure software", "Developer platforms", "Cybersecurity", "Fintech"].filter((x) => low.includes(x.toLowerCase().split(" ")[0]));
+  const size = materials.match(/(?:target fund size|fund size|targeting|raising)[^.\n$]{0,40}\$?\s?(\d{1,3})\s?m/i)?.[0].match(/\$?\s?(\d{1,3})\s?m/i)?.[0]?.replace(/\s+/g, "") || "Target fund size not provided";
+  return {
+    fundName: low.includes("blue oak") ? "Blue Oak Venture Fund" : low.includes("frontier") ? "Frontier Seed Fund" : "Imported Venture Fund",
+    targetFundSize: size.toLowerCase().includes("m") ? `${size.replace("$", "$")} target` : "Target fund size not provided",
+    stage: low.includes("pre-seed") ? "Pre-seed and seed" : low.includes("seed") ? "Seed" : "Early-stage venture",
+    geography: low.includes("europe") ? "United States and Europe" : "United States",
+    sectorFocus: sectors.length ? sectors.slice(0, 4) : ["Applied AI", "Vertical SaaS", "Infrastructure software"],
+    idealLPTypes: ["Family Office", "Fund of Funds", "Angel Investor", "RIA", "Foundation"],
+    targetLPCheckSize: low.includes("$1m") || low.includes("$1M") ? "$250K to $1M" : "$250K to $750K",
+    strongestDifferentiators: ["Focused thesis", "Emerging-manager access", "Technical founder network", "Hands-on portfolio support"],
+    likelyLPObjections: ["Attribution clarity", "Small team bandwidth", "Proof of repeatable sourcing", "Portfolio concentration"],
+    suggestedFundraisingNarrative: "Position the fund as a focused emerging-manager vehicle that gives LPs concentrated exposure to technical founders building durable B2B software, with the GP acting as a hands-on partner from seed through follow-on.",
+    confidenceScore: files.length || materials.length > 400 ? 0.9 : 0.76,
+  };
+}
+
+function parseImportedLPs(text: string): LP[] {
+  const lines = text.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  const csvStart = lines.findIndex((x) => /name\s*,\s*firm/i.test(x));
+  const rows = (csvStart >= 0 ? lines.slice(csvStart + 1) : lines).filter((x) => x.includes(",")).slice(0, 24);
+  const colors = ["#3d4b72", "#8e6358", "#60776b", "#817056", "#536276", "#745f78"];
+  return rows.map((row, i) => {
+    const [nameRaw, firmRaw, typeRaw, stageRaw, interestRaw, concernRaw, nextRaw, checkRaw, lastRaw, sourceRaw] = row.split(",").map((x) => x.trim());
+    const type = investorTypes.includes(typeRaw as LPType) ? typeRaw as LPType : investorTypes[i % investorTypes.length];
+    const status: Heat = /diligence|soft circle|committed/i.test(stageRaw || "") ? "Hot" : /contacted|meeting/i.test(stageRaw || "") ? "Warm" : "Cold";
+    const amount = parseAmount(checkRaw || "");
+    const interest = interestRaw || ["Applied AI", "Seed funds", "Private markets access"][i % 3];
+    const name = nameRaw || `Imported LP ${i + 1}`;
+    return {
+      id: `my-lp-${Date.now()}-${i}`,
+      initials: initials(name),
+      color: colors[i % colors.length],
+      name,
+      firm: firmRaw || "Imported organization",
+      type,
+      status,
+      strength: status === "Hot" ? 86 - (i % 6) : status === "Warm" ? 70 - (i % 8) : 48,
+      interest,
+      interests: textToList(interest),
+      last: displayDate(lastRaw || "2026-06-26"),
+      next: nextRaw || "Qualify relationship and confirm LP fit",
+      due: i % 3 === 0 ? "Today" : `Jul ${2 + i}`,
+      source: sourceRaw || "Imported CRM",
+      event: "Fund onboarding import",
+      concern: concernRaw || "Needs qualification",
+      commitment: amount ? `${money(amount)} indicated check size` : "No commitment yet",
+      commitmentAmount: amount,
+      activity: stageRaw ? `Imported pipeline stage: ${stageRaw}` : "Imported from onboarding",
+      meetings: [{ date: displayDate(lastRaw || "2026-06-26"), title: "Imported CRM activity", note: `${name} imported during fund onboarding. Stage: ${stageRaw || "Needs qualification"}. Interest: ${interest}.` }],
+    };
+  });
+}
+
+function fallbackImportedLPs(): LP[] {
+  return parseImportedLPs(sampleExistingLPCsv);
+}
+
+function generateOnboardingSummary(materials: string, csvText: string, files: string[]): OnboardingSummary {
+  const source = `${materials}\n${csvText}`.trim() || sampleOnboardingMaterials;
+  const fundDNA = inferFundDNA(source, files);
+  const profiles = parseImportedLPs(csvText || source);
+  const imported = profiles.length ? profiles : fallbackImportedLPs();
+  const tasks = imported.slice(0, Math.max(3, Math.min(8, imported.length))).map((lp) => ({ id: `my-task-${lp.id}`, lpId: lp.id, title: lp.next, due: lp.due, done: false }));
+  const feed = [
+    { title: `${fundDNA.fundName} imported`, meta: `${fundDNA.stage} - ${fundDNA.geography}`, tag: "Fund DNA, thesis summary, narrative, and target LP profile generated" },
+    { title: `${imported.length} existing LPs imported`, meta: "Pipeline stages, next actions, and relationship history detected", tag: "My Fund Workspace" },
+    { title: "LP Fit and opportunities generated", meta: `${Math.max(8, imported.length + 6)} recommended LP opportunities`, tag: "AI Priorities updated" },
+  ];
+  const missingInformation = [
+    fundDNA.targetFundSize.includes("not provided") ? "Target fund size" : "",
+    source.toLowerCase().includes("track record") ? "" : "Track record details",
+    source.toLowerCase().includes("portfolio") ? "" : "Portfolio proof points",
+    imported.some((lp) => lp.source === "Imported CRM") ? "Warm introducer names for some LPs" : "",
+  ].filter(Boolean);
+  return {
+    fundDNA,
+    profiles: imported,
+    tasks,
+    feed,
+    importedLPs: imported.length,
+    meetingsDetected: imported.reduce((n, lp) => n + lp.meetings.length, 0),
+    opportunitiesGenerated: Math.max(8, imported.length + 6),
+    missingInformation,
+    recommendedActions: [
+      "Review the top five LP Fit Scores before sending new outreach.",
+      "Send diligence materials to hot imported LPs with open next actions.",
+      "Add missing proof points so the Narrative Coach can handle likely objections.",
+      "Ask Memory which imported LPs should be prioritized this week.",
+    ],
+    files,
+  };
+}
 
 function signalForLP(lp: LP, tasks: Task[], fit?: LPFit): FundraisingSignal {
   const task = tasks.find((x) => x.lpId === lp.id && !x.done);
@@ -419,7 +578,7 @@ function Title({ eyebrow, title, copy, action }: { eyebrow: string; title: strin
 function Status({ value }: { value: Heat }) { return <span className={`status ${value.toLowerCase()}`}><i />{value}</span>; }
 function Metric({ label, value, detail, tone = "" }: { label: string; value: string | number; detail: string; tone?: string }) { return <div className="stat"><div><span className={tone}><Target /></span><em className={tone}>{detail}</em></div><p>{label}</p><h2>{value}</h2></div>; }
 
-function DashboardView({ profiles, tasks, feed, metrics, latestUploadId, fundDNA, strategy, bestFits, go, openLP, openChat, openUpload, signals, forecast, autonomous, fitResults }: { profiles: LP[]; tasks: Task[]; feed: Feed[]; metrics: { total: number; active: number; warm: number; commitments: number; pipeline: number; open: number; overdue: number; score: number }; latestUploadId: string | null; fundDNA: FundDNA | null; strategy: FundraisingStrategy | null; bestFits: { lp: LP; fit: LPFit }[]; go: (s: Screen) => void; openLP: (lp: LP) => void; openChat: () => void; openUpload: () => void; signals: Record<string, FundraisingSignal>; forecast: ReturnType<typeof fundraisingForecast>; autonomous: AutonomousRecommendation[]; fitResults: Record<string, LPFit> }) {
+function DashboardView({ profiles, tasks, feed, metrics, latestUploadId, fundDNA, strategy, bestFits, go, openLP, openChat, openUpload, openOnboarding, workspaceMode, onboardingSummary, signals, forecast, autonomous, fitResults }: { profiles: LP[]; tasks: Task[]; feed: Feed[]; metrics: { total: number; active: number; warm: number; commitments: number; pipeline: number; open: number; overdue: number; score: number }; latestUploadId: string | null; fundDNA: FundDNA | null; strategy: FundraisingStrategy | null; bestFits: { lp: LP; fit: LPFit }[]; go: (s: Screen) => void; openLP: (lp: LP) => void; openChat: () => void; openUpload: () => void; openOnboarding: () => void; workspaceMode: WorkspaceMode; onboardingSummary: OnboardingSummary | null; signals: Record<string, FundraisingSignal>; forecast: ReturnType<typeof fundraisingForecast>; autonomous: AutonomousRecommendation[]; fitResults: Record<string, LPFit> }) {
   const focus = fundDNA ? bestFits.slice(0, 4) : [...profiles].sort((a, b) => b.strength - a.strength).slice(0, 4).map((lp) => ({ lp, fit: undefined as LPFit | undefined }));
   const uploaded = latestUploadId ? profiles.find((x) => x.id === latestUploadId) : null;
   const openTasks = tasks.filter((x) => !x.done);
@@ -437,10 +596,21 @@ function DashboardView({ profiles, tasks, feed, metrics, latestUploadId, fundDNA
         <p>LP Brain reads the fund thesis, LP memory, meeting notes, follow-ups, strategy, opportunities, and graph context to recommend the next best actions.</p>
       </div>
       <div className="ai-hero-actions">
+        <button className="ask" onClick={openOnboarding}><UploadCloud />Onboard fund</button>
         <button className="ask" onClick={openChat}><Sparkles />Ask Memory</button>
         <button className="primary" onClick={openUpload}><Plus /><span>Upload meeting note</span></button>
       </div>
     </section>
+
+    {workspaceMode === "My Fund Workspace" && onboardingSummary && <section className="panel onboarding-live-summary">
+      <div className="panel-head"><div><h2>My Fund Workspace is live</h2><p>Imported fund materials now drive Fund DNA, LP Fit, opportunities, priorities, and forecast.</p></div><span>Saved workspace</span></div>
+      <div className="onboarding-summary-grid">
+        <Metric label="LPs imported" value={onboardingSummary.importedLPs} detail="Existing relationship records" />
+        <Metric label="Meetings detected" value={onboardingSummary.meetingsDetected} detail="From notes and CRM rows" />
+        <Metric label="Opportunities" value={onboardingSummary.opportunitiesGenerated} detail="Generated from Fund DNA" />
+      </div>
+      <div className="onboarding-next-actions">{onboardingSummary.recommendedActions.slice(0, 3).map((x) => <p key={x}><Check />{x}</p>)}</div>
+    </section>}
 
     <section className="chief-grid">
       <div className="panel chief-card primary-chief">
@@ -555,13 +725,38 @@ function KnowledgeWorkspace({ profiles, latestUploadId, fundDNA, strategy, bestF
   return <><Title eyebrow="KNOWLEDGE" title="The fund, LP memory, strategy, and graph in one place." copy="This section keeps the AI-native knowledge engines available without turning them into dashboard navigation." action={<button className="ask" onClick={openChat}><Sparkles />Ask Memory</button>} /><section className="ai-engines panel knowledge-engines"><div className="engine-grid"><details open={!fundDNA}><summary><BrainCircuit />Fund DNA + LP Fit <span>{fundDNA ? "Approved" : "Create now"}</span></summary><FundDNAView profiles={profiles} fundDNA={fundDNA} fitResults={fitResults} saveDNA={saveDNA} openLP={openLP} openChat={openChat} /></details><details open={!!strategy}><summary><Target />Fundraising Strategy + Narrative Coach <span>{strategy ? `${strategy.readinessScore.score}/100` : "Pending"}</span></summary><StrategyView strategy={strategy} fundDNA={fundDNA} bestFits={bestFits} go={go} openLP={openLP} openChat={openChat} /></details><details><summary><Sparkles />LP Opportunities + Outreach Playbook <span>{opportunities.length || "Pending"}</span></summary><OpportunitiesView fundDNA={fundDNA} strategy={strategy} opportunities={opportunities} outcomes={outcomes} setOutcome={setOutcome} openChat={openChat} /></details><details><summary><Network />Relationship Graph <span>Live</span></summary><Graph profiles={profiles} latestUploadId={latestUploadId} openChat={openChat} /></details></div></section></>;
 }
 
-function SettingsWorkspace({ reset, openChat, openUpload }: { reset: () => void; openChat: () => void; openUpload: () => void }) {
-  return <><Title eyebrow="SETTINGS" title="Demo controls" copy="Operational controls for the live demo. Core workflows remain unchanged." /><section className="chief-grid compact"><div className="panel chief-card"><label>Demo state</label><h2>Reset workspace</h2><p><b>What happens:</b> Restores the original LP memory, tasks, activity, Fund DNA, strategy, and opportunities.</p><button onClick={reset}>Reset demo <ArrowRight /></button></div><div className="panel chief-card"><label>Meeting Intelligence</label><h2>Upload a meeting note</h2><p><b>Why it matters:</b> This is the fastest way to show LP Brain updating memory and next actions.</p><button onClick={openUpload}>Open upload <ArrowRight /></button></div><div className="panel chief-card"><label>Ask Memory</label><h2>Talk to the Chief of Staff</h2><p><b>Do next:</b> Ask who to contact, what objections to prepare for, or draft outreach.</p><button onClick={openChat}>Ask Memory <ArrowRight /></button></div></section></>;
+function SettingsWorkspace({ reset, openChat, openUpload, openOnboarding, workspaceMode }: { reset: () => void; openChat: () => void; openUpload: () => void; openOnboarding: () => void; workspaceMode: WorkspaceMode }) {
+  return <><Title eyebrow="SETTINGS" title="Workspace controls" copy="Switch between the demo environment and a real imported fund workspace without removing any core workflows." /><section className="chief-grid compact"><div className="panel chief-card"><label>Real fund onboarding</label><h2>Create My Fund Workspace</h2><p><b>What happens:</b> Import fund materials and LP exports so LP Brain creates Fund DNA, LP profiles, priorities, opportunities, and forecast.</p><button onClick={openOnboarding}>Open onboarding <ArrowRight /></button></div><div className="panel chief-card"><label>Current workspace</label><h2>{workspaceMode}</h2><p><b>What happens:</b> Reset restores the original demo memory, tasks, Fund DNA, strategy, and opportunities.</p><button onClick={reset}>Reset demo <ArrowRight /></button></div><div className="panel chief-card"><label>Meeting Intelligence</label><h2>Upload a meeting note</h2><p><b>Why it matters:</b> This is the fastest way to show LP Brain updating memory and next actions.</p><button onClick={openUpload}>Open upload <ArrowRight /></button></div><div className="panel chief-card"><label>Ask Memory</label><h2>Talk to the Chief of Staff</h2><p><b>Do next:</b> Ask who to contact, what objections to prepare for, or draft outreach.</p><button onClick={openChat}>Ask Memory <ArrowRight /></button></div></section></>;
 }
 
 function Directory({ profiles, query, fitResults, openLP }: { profiles: LP[]; query: string; fitResults: Record<string, LPFit>; openLP: (lp: LP) => void }) { const [type, setType] = useState("All"); const rows = profiles.filter((x) => (type === "All" || x.type === type) && (`${x.name} ${x.firm} ${x.interest}`).toLowerCase().includes(query.toLowerCase())); return <><Title eyebrow="LIVE RELATIONSHIP DATA" title={`${profiles.length} LP profiles`} copy="Every row is backed by introductions, meetings, interests, concerns, next actions, and LP Fit when Fund DNA exists." /><div className="directory-tools panel"><div><span>Investor type</span>{["All", ...investorTypes].map((x) => <button className={type === x ? "on" : ""} onClick={() => setType(x)} key={x}>{x}</button>)}</div></div><section className="directory panel"><div className="table-head"><span>Investor</span><span>Relationship</span><span>Interests</span><span>Last contact</span><span>Next action</span><span /></div>{rows.map((lp) => { const fit = fitResults[lp.id]; return <button className="table-row" key={lp.id} onClick={() => openLP(lp)}><div><span className="avatar" style={{ background: lp.color }}>{lp.initials}</span><p><b>{lp.name}</b><small>{lp.firm} • {lp.type}</small></p></div><div><Status value={lp.status} /><small>{fit ? `${fit.score}% LP fit` : `${lp.strength}% strength`}</small></div><span>{lp.interest}</span><span>{lp.last}</span><p><b>{fit?.nextBestAction || lp.next}</b><small>{fit?.likelyObjection || lp.due}</small></p><ChevronRight /></button>; })}</section></>; }
 function Followups({ profiles, tasks, toggle }: { profiles: LP[]; tasks: Task[]; toggle: (id: string) => void }) { const open = tasks.filter((x) => !x.done), overdue = open.filter((x) => x.due === "Overdue").length; return <><Title eyebrow="FOLLOW-UP INTELLIGENCE" title={`${open.length} open follow-ups`} copy={`${overdue} overdue. Completing a task updates the dashboard immediately.`} /><section className="follow-summary"><Metric label="Open" value={open.length} detail="All active tasks" /><Metric label="Overdue" value={overdue} detail="Needs attention" tone={overdue ? "risk" : "good"} /><Metric label="Completed" value={tasks.filter((x) => x.done).length} detail="This demo session" tone="good" /></section><section className="panel follow-list"><div className="follow-label">PRIORITY QUEUE</div>{tasks.map((task) => { const lp = profiles.find((x) => x.id === task.lpId); if (!lp) return null; return <div className={`follow-row ${task.done ? "done" : ""}`} key={task.id}><button aria-label={`${task.done ? "Reopen" : "Complete"} ${task.title}`} onClick={() => toggle(task.id)}><Check /></button><span className="avatar" style={{ background: lp.color }}>{lp.initials}</span><p><b>{task.title}</b><small>{lp.name} • {lp.firm}</small></p><span className={task.due === "Overdue" ? "overdue" : ""}>{task.due}</span><em>{lp.status} • {lp.strength}%</em></div>; })}</section></>; }
 function Graph({ profiles, latestUploadId, openChat }: { profiles: LP[]; latestUploadId: string | null; openChat: () => void }) { const lp = (latestUploadId && profiles.find((x) => x.id === latestUploadId)) || profiles[0]; const labels = [lp.name, lp.source, lp.event, lp.meetings[0].title, lp.next], kinds = ["LP", "Introducer", "Event", "Meeting", "Follow-up"], pos = [[50, 42], [20, 20], [18, 73], [77, 20], [80, 72]]; const [selected, setSelected] = useState(0); return <><Title eyebrow="RELATIONSHIP GRAPH" title={latestUploadId ? `${lp.name} is now connected.` : "From introduction to next action."} copy="This graph is generated from the same approved meeting memory used everywhere else." /><section className="graph-layout"><div className="graph-canvas panel"><div className="graph-tools"><strong>{lp.name} relationship path</strong><span>{profiles.length} LPs • live memory graph</span></div><div className="network"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><line x1="50" y1="42" x2="20" y2="20" /><line x1="20" y1="20" x2="18" y2="73" /><line x1="18" y1="73" x2="77" y2="20" /><line x1="77" y1="20" x2="80" y2="72" /></svg>{labels.map((label, i) => <button key={`${label}-${i}`} onClick={() => setSelected(i)} className={`node ${kinds[i].toLowerCase()} ${selected === i ? "selected" : ""}`} style={{ left: `${pos[i][0]}%`, top: `${pos[i][1]}%` }}><i>{i === 0 ? lp.initials : kinds[i][0]}</i><span>{label}</span><small>{kinds[i]}</small></button>)}</div></div><aside className="graph-detail panel"><span className="detail-kind">{kinds[selected]}</span><h2>{labels[selected]}</h2><div className="connection-list"><h3>MEMORY PATH</h3><div><Users /><p><b>Source: {lp.source}</b><small>{lp.event}</small></p></div><div><BrainCircuit /><p><b>{lp.meetings[0].title}</b><small>{lp.meetings[0].note}</small></p></div><div><Check /><p><b>{lp.next}</b><small>Due {lp.due}</small></p></div></div><button className="ask-connection" onClick={openChat}><Sparkles />Ask about {lp.name.split(" ")[0]}</button></aside></section></>; }
+
+function FundOnboarding({ close, save }: { close: () => void; save: (summary: OnboardingSummary) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [files, setFiles] = useState<string[]>([]);
+  const [materials, setMaterials] = useState("");
+  const [crm, setCrm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState<OnboardingSummary | null>(null);
+  const ready = Boolean(files.length || materials.trim() || crm.trim());
+  const selectFiles = (list: FileList | null) => setFiles(Array.from(list || []).map((file) => file.name));
+  const generate = (sample = false) => {
+    setBusy(true);
+    const nextMaterials = sample ? sampleOnboardingMaterials : materials;
+    const nextCrm = sample ? sampleExistingLPCsv : crm;
+    const nextFiles = sample ? ["Fund_Deck.pdf", "GP_Bio.pdf", "Existing_LP_Export.csv"] : files;
+    setMaterials(nextMaterials);
+    setCrm(nextCrm);
+    setFiles(nextFiles);
+    setTimeout(() => {
+      setSummary(generateOnboardingSummary(nextMaterials, nextCrm, nextFiles));
+      setBusy(false);
+    }, 350);
+  };
+  return <div className="backdrop"><div className="upload onboarding-modal"><div className="modal-head"><div><span>{summary ? "ONBOARDING SUMMARY" : "REAL FUND ONBOARDING"}</span><h2>{summary ? "Review My Fund Workspace" : "Import fund materials"}</h2><small>{summary ? "Approve the AI-generated workspace before saving." : "Upload or paste fund materials and existing LP/CRM exports. LP Brain will build the operating workspace."}</small></div><button aria-label="Close onboarding" onClick={close}><X /></button></div>{!summary ? <section className="onboarding-flow"><div className="onboarding-steps"><span className="on">1 Import Fund</span><span>2 AI creates workspace</span><span>3 Generate priorities</span><span>4 Review summary</span><span>5 Save workspace</span></div><button type="button" className="drop phase-drop" onClick={() => input.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); selectFiles(e.dataTransfer.files); }}><input ref={input} hidden multiple type="file" accept=".pdf,.ppt,.pptx,.txt,.md,.csv,.xlsx,.xls" onChange={(e) => selectFiles(e.target.files)} /><UploadCloud /><b>Upload fund deck, PPTX, one-pager, GP bio, CSV, or XLSX</b><p>OR</p><span>Browse Files</span><small>Accepted: PDF, PPTX, TXT, Markdown, CSV, XLSX</small></button>{files.length > 0 && <div className="onboarding-files">{files.map((file) => <p key={file}><FileText />{file}</p>)}</div>}<textarea className="phase-note-input" value={materials} onChange={(e) => setMaterials(e.target.value)} placeholder="Paste fund deck text, one-pager, investment thesis, GP bio, portfolio notes, target fund size, geography, sector focus, and stage focus..." /><textarea className="phase-note-input crm-input" value={crm} onChange={(e) => setCrm(e.target.value)} placeholder="Paste existing LP spreadsheet or CRM export CSV here. Columns can include Name, Firm, Type, Stage, Interest, Concern, Next Action, Check Size, Last Contact, Intro Source..." /><button className="sample-upload" onClick={() => generate(true)}><Sparkles />Use sample real-fund onboarding package</button></section> : <section className="onboarding-review"><div className="onboarding-steps"><span>1 Import Fund</span><span>2 AI creates workspace</span><span>3 Generate priorities</span><span className="on">4 Review summary</span><span>5 Save workspace</span></div><div className="onboarding-summary-grid"><Metric label="LPs imported" value={summary.importedLPs} detail="Existing LP profiles" /><Metric label="Meetings detected" value={summary.meetingsDetected} detail="From CRM/activity rows" /><Metric label="Opportunities generated" value={summary.opportunitiesGenerated} detail="Recommended LP targets" /></div><div className="fund-dna-grid onboarding-result"><div className="panel dna-card"><h2>{summary.fundDNA.fundName}</h2><p>{summary.fundDNA.targetFundSize} - {summary.fundDNA.stage} - {summary.fundDNA.geography}</p><div className="tags">{summary.fundDNA.sectorFocus.map((x) => <span key={x}>{x}</span>)}</div><dl className="dna-list"><div><dt>Investment thesis summary</dt><dd>{summary.fundDNA.suggestedFundraisingNarrative}</dd></div><div><dt>Target LP profile</dt><dd>{summary.fundDNA.idealLPTypes.join(", ")} writing {summary.fundDNA.targetLPCheckSize} checks.</dd></div><div><dt>Suggested fundraising narrative</dt><dd>{summary.fundDNA.suggestedFundraisingNarrative}</dd></div><div><dt>Existing pipeline stages</dt><dd>{summary.profiles.map((lp) => `${lp.name}: ${lp.status}`).slice(0, 5).join(" | ")}</dd></div></dl></div><div className="panel dna-card"><h2>Generated downstream work</h2><dl className="dna-list"><div><dt>LP Fit Scores</dt><dd>Generated for all imported LPs after saving.</dd></div><div><dt>LP Opportunities</dt><dd>{summary.opportunitiesGenerated} opportunity recommendations will be available from the AI Workspace.</dd></div><div><dt>Warm introductions</dt><dd>Suggested from intro source and imported relationship context.</dd></div><div><dt>AI Priorities and forecast</dt><dd>Today's fundraising actions, readiness, and forecast update automatically after save.</dd></div></dl></div></div><div className="workspace-columns onboarding-lists"><div className="panel action-stack"><div className="panel-head"><div><h2>Missing information</h2><p>LP Brain can start now, but these fields would improve recommendations.</p></div></div>{(summary.missingInformation.length ? summary.missingInformation : ["No critical missing fields detected"]).map((x) => <div className="briefing-row" key={x}><FileText /><p><b>{x}</b><small>Can be added later in Knowledge or meeting notes.</small></p></div>)}</div><div className="panel action-stack"><div className="panel-head"><div><h2>Recommended next actions</h2><p>The first operating plan for this fund workspace.</p></div></div>{summary.recommendedActions.map((x) => <div className="briefing-row" key={x}><Check /><p><b>{x}</b><small>Generated from imported fund and LP context.</small></p></div>)}</div></div><div className="demo-impact"><span>CLEAN WORKSPACE JSON</span><pre>{JSON.stringify({ fundDNA: summary.fundDNA, importedLPs: summary.importedLPs, meetingsDetected: summary.meetingsDetected, opportunitiesGenerated: summary.opportunitiesGenerated, missingInformation: summary.missingInformation, recommendedActions: summary.recommendedActions }, null, 2)}</pre></div></section>}<div className="modal-actions"><button onClick={close}>Cancel</button>{!summary ? <button className="primary" disabled={busy || !ready} onClick={() => generate(false)}><Sparkles />{busy ? "Creating workspace..." : "Create onboarding summary"}</button> : <button className="primary" onClick={() => save(summary)}>Save as My Fund Workspace <ArrowRight /></button>}</div></div></div>;
+}
 
 function Upload({ close, approve }: { close: () => void; approve: (extraction: Extraction, rawText: string) => void }) { const input = useRef<HTMLInputElement>(null); const [file, setFile] = useState<File | null>(null); const [note, setNote] = useState(""); const [rawText, setRawText] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [extraction, setExtraction] = useState<Extraction | null>(null); const ready = Boolean(note.trim() || file); const setField = <K extends keyof Extraction>(key: K, value: Extraction[K]) => setExtraction((x) => x ? { ...x, [key]: value } : x); const extract = async (demo = false) => { setBusy(true); setError(""); if (demo) { setNote(sampleMeetingNote); setRawText(sampleMeetingNote); setExtraction(sampleExtraction); setBusy(false); return; } const form = new FormData(); if (file) form.append("file", file); form.append("note", note); try { const res = await fetch("/api/upload", { method: "POST", body: form }); const data = await res.json(); if (!res.ok) throw new Error(data.error || "Extraction failed"); setExtraction(data.extraction); setRawText(data.rawText || note); } catch (e) { setError(e instanceof Error ? e.message : "Extraction failed"); } finally { setBusy(false); } }; return <div className="backdrop"><div className="upload"><div className="modal-head"><div><span>{extraction ? "REVIEW EXTRACTION" : "AI MEETING EXTRACTION"}</span><h2>{extraction ? "Review before saving" : "Upload or paste meeting note"}</h2><small>{extraction ? "Approve or edit the structured JSON fields." : "Upload a note file or paste a transcript, then extract structured fundraising memory."}</small></div><button aria-label="Close upload" onClick={close}><X /></button></div>{!extraction ? <section className="phase-upload-panel"><button type="button" className="drop phase-drop" onClick={() => input.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); setFile(e.dataTransfer.files?.[0] || null); }}><input ref={input} hidden type="file" accept=".txt,.md,.markdown,.pdf,.docx" onChange={(e) => setFile(e.target.files?.[0] || null)} /><UploadCloud /><b>Drag & drop PDF, DOCX or TXT here</b><p>OR</p><span>Browse Files</span><small>Accepted: PDF • DOCX • TXT • Markdown</small></button><textarea className="phase-note-input" value={note} onChange={(e) => { setNote(e.target.value); setError(""); }} placeholder="Paste meeting notes here..." />{file && <div className="phase-file-ready"><span><FileText /></span><p><small>Selected file:</small><b>{file.name}</b></p><em><Check />Ready for AI extraction</em><button aria-label="Remove selected file" onClick={() => setFile(null)}><X /></button></div>}<button className="sample-upload" onClick={() => extract(true)}><Sparkles />Use sample Nora Ellis meeting note</button>{error && <p className="phase-upload-error">{error}</p>}</section> : <ReviewExtraction extraction={extraction} setField={setField} />}<div className="modal-actions"><button onClick={close}>Cancel</button>{!extraction ? <button className="primary" disabled={busy || !ready} onClick={() => extract(false)}><Sparkles />{busy ? "Extracting..." : "Extract with AI"}</button> : <button className="primary" onClick={() => approve(extraction, rawText || note || sampleMeetingNote)}>Approve and update LP Brain <ArrowRight /></button>}</div></div></div>; }
 function ReviewExtraction({ extraction, setField }: { extraction: Extraction; setField: <K extends keyof Extraction>(key: K, value: Extraction[K]) => void }) { const inputStyle = { width: "100%", border: "1px solid #e0e2e3", borderRadius: 8, padding: "8px 10px", fontSize: 11 } as const; const field = (label: string, node: React.ReactNode) => <label style={{ display: "grid", gap: 5, fontSize: 9, color: "#7f8794" }}><span>{label}</span>{node}</label>; return <div style={{ padding: 22, display: "grid", gap: 12, maxHeight: "58vh", overflow: "auto" }}><div className="demo-impact"><span>CLEAN JSON</span><pre style={{ whiteSpace: "pre-wrap", fontSize: 10, margin: 0 }}>{extractionToText(extraction)}</pre></div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>{field("LP name", <input style={inputStyle} value={extraction.lpName} onChange={(e) => setField("lpName", e.target.value)} />)}{field("Firm / organization", <input style={inputStyle} value={extraction.firm} onChange={(e) => setField("firm", e.target.value)} />)}{field("Investor type", <select style={inputStyle} value={extraction.investorType} onChange={(e) => setField("investorType", e.target.value as LPType)}>{investorTypes.map((x) => <option key={x}>{x}</option>)}</select>)}{field("Meeting date", <input style={inputStyle} value={extraction.meetingDate} onChange={(e) => setField("meetingDate", e.target.value)} />)}{field("Check size", <input style={inputStyle} value={extraction.checkSize} onChange={(e) => setField("checkSize", e.target.value)} />)}{field("Follow-up due date", <input style={inputStyle} value={extraction.followUpDueDate} onChange={(e) => setField("followUpDueDate", e.target.value)} />)}{field("Sentiment", <select style={inputStyle} value={extraction.sentiment} onChange={(e) => setField("sentiment", e.target.value as Extraction["sentiment"])}>{["Positive", "Neutral", "Negative"].map((x) => <option key={x}>{x}</option>)}</select>)}{field("Confidence score", <input style={inputStyle} type="number" min="0" max="1" step="0.01" value={extraction.confidenceScore} onChange={(e) => setField("confidenceScore", Number(e.target.value))} />)}</div>{field("Interest areas", <textarea style={inputStyle} value={extraction.interestAreas.join("\n")} onChange={(e) => setField("interestAreas", textToList(e.target.value))} />)}{field("Questions asked", <textarea style={inputStyle} value={extraction.questionsAsked.join("\n")} onChange={(e) => setField("questionsAsked", textToList(e.target.value))} />)}{field("Concerns raised", <textarea style={inputStyle} value={extraction.concernsRaised.join("\n")} onChange={(e) => setField("concernsRaised", textToList(e.target.value))} />)}{field("Documents requested", <textarea style={inputStyle} value={extraction.documentsRequested.join("\n")} onChange={(e) => setField("documentsRequested", textToList(e.target.value))} />)}{field("Commitment signals", <textarea style={inputStyle} value={extraction.commitmentSignals} onChange={(e) => setField("commitmentSignals", e.target.value)} />)}{field("Next action", <input style={inputStyle} value={extraction.nextAction} onChange={(e) => setField("nextAction", e.target.value)} />)}{field("Summary", <textarea style={inputStyle} value={extraction.summary} onChange={(e) => setField("summary", e.target.value)} />)}</div>; }
