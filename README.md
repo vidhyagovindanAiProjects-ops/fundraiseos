@@ -1,14 +1,16 @@
 # LP Brain
 
-AI Fundraising Chief of Staff for emerging venture funds.
+AI-native LP Discovery and Relationship Intelligence for emerging venture fund managers.
 
 ## Current workflows
 
 - Meeting-note extraction: upload or paste notes, review/edit structured JSON, then approve into memory.
 - Fund DNA: paste fund materials, extract a structured fund profile, and approve it.
-- LP Fit Scores: every LP is ranked against the approved Fund DNA.
-- Best-Fit LPs: ranked list with fit explanations, likely objections, outreach angles, and next best action.
-- Ask Memory: grounded answers across LP profiles, Fund DNA, follow-ups, objections, and outreach drafts.
+- LP Matching Intelligence: every LP and LP category is ranked against the approved Fund DNA.
+- Ideal LP Personas: target and avoid categories with reasoning.
+- Relationship Intelligence: warm introduction paths, community/event suggestions, and outreach strategy.
+- Weekly Action Plan: focused actions to identify, access, and convert high-probability LPs.
+- Ask LP Brain: grounded answers across Fund DNA, LP personas, fit scores, discovery, relationship paths, objections, and outreach drafts.
 
 ## Environment variables
 
@@ -27,21 +29,21 @@ If `OPENAI_API_KEY` is missing, LP Brain shows a clear error and keeps demo fall
 ## Demo path
 
 1. Open the homepage.
-2. Confirm the hero says: **Raise Your Venture Fund with an AI Chief of Staff**.
-3. Open **Fund DNA**.
-4. Use the sample fund materials.
-5. Approve the Fund DNA JSON.
-6. Review **Best-Fit LPs**.
-7. Open Elena Park and review LP Fit Intelligence.
-8. Open Ask Memory and try:
-   - Which LPs are the best fit for this fund?
-   - Why is Elena Park a good match?
-   - Which LPs should the GP prioritize this week?
-   - What objections should we prepare for?
-   - Draft a first outreach email for Elena Park.
+2. Confirm the hero says: **Identify, access, and convert the highest-probability LPs.**
+3. Open **Upload fund materials**.
+4. Use the sample LP discovery package or paste fund deck / GP bio / thesis text.
+5. Review Fund DNA, ideal LP profile, and recommended next actions.
+6. Review **Ideal LP Personas** and **LP Matching Intelligence** on the homepage.
+7. Open **Discover Investors** and review high-probability LP opportunities.
+8. Open Ask LP Brain and try:
+   - Who should I fundraise from?
+   - Which LP categories have the highest probability?
+   - Which LP categories should I avoid?
+   - What is my most efficient fundraising path?
+   - What should the GP do this week?
 9. Open **Upload meeting note**.
 10. Use the sample Nora Ellis meeting note.
-11. Review/edit JSON and approve the update.
+11. Review/edit JSON and approve the relationship update.
 
 ## Build
 
