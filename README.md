@@ -1,6 +1,6 @@
 # LP Brain
 
-AI-native LP Discovery and Relationship Intelligence for emerging venture fund managers.
+AI-native fundraising chief of staff for emerging venture fund managers.
 
 ## Current workflows
 
@@ -11,6 +11,7 @@ AI-native LP Discovery and Relationship Intelligence for emerging venture fund m
 - Relationship Intelligence: warm introduction paths, community/event suggestions, and outreach strategy.
 - Weekly Action Plan: focused actions to identify, access, and convert high-probability LPs.
 - Ask LP Brain: grounded answers across Fund DNA, LP personas, fit scores, discovery, relationship paths, objections, and outreach drafts.
+- Live MVP Workflow: fund setup, LP records, relationship timelines, meeting prep, meeting intelligence, and This Week priorities using one live workspace dataset.
 
 ## Environment variables
 
@@ -29,11 +30,11 @@ If `OPENAI_API_KEY` is missing, LP Brain shows a clear error and keeps demo fall
 ## Demo path
 
 1. Open the homepage.
-2. Confirm the hero says: **Identify, access, and convert the highest-probability LPs.**
+2. Confirm the hero says: **Your AI Fundraising Chief of Staff.**
 3. Open **Upload fund materials**.
 4. Use the sample LP discovery package or paste fund deck / GP bio / thesis text.
 5. Review Fund DNA, ideal LP profile, and recommended next actions.
-6. Review **Ideal LP Personas** and **LP Matching Intelligence** on the homepage.
+6. Review **Ideal LP Personas**, **LP Matching Intelligence**, and the **Live MVP Workflow** on the homepage.
 7. Open **Discover Investors** and review high-probability LP opportunities.
 8. Open Ask LP Brain and try:
    - Who should I fundraise from?

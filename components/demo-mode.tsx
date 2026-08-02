@@ -1074,9 +1074,9 @@ function DashboardView({ profiles, tasks, feed, metrics, latestUploadId, fundDNA
   return <>
     <section className="ai-hero panel">
       <div>
-        <span>AI-NATIVE LP DISCOVERY</span>
-        <h1>Identify, access, and convert the highest-probability LPs.</h1>
-        <p>LP Brain helps emerging venture fund managers close LP commitments faster by using AI to identify the highest-probability LPs, uncover warm introduction paths, and create an actionable fundraising strategy.</p>
+        <span>AI FUNDRAISING CHIEF OF STAFF</span>
+        <h1>Your AI Fundraising Chief of Staff.</h1>
+        <p>LP Brain helps emerging venture fund managers prepare for LP meetings, capture relationship intelligence, identify high-probability LPs, and know exactly what to do next.</p>
         <p className="onboarding-note">Upload your fund deck, GP bio, investment thesis, and optional LP list to generate Fund DNA and LP matching intelligence.</p>
       </div>
       <div className="ai-hero-actions">

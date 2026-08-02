@@ -7,8 +7,8 @@ import "./story.css";
 import "./story-fix.css";
 
 export const metadata: Metadata = {
-  title: "LP Brain | LP Discovery & Relationship Intelligence",
-  description: "AI-native LP discovery and relationship intelligence for emerging venture fund managers.",
+  title: "LP Brain | AI Fundraising Chief of Staff",
+  description: "AI-native fundraising chief of staff for emerging venture fund managers.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
