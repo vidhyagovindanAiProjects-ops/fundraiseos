@@ -1,111 +1,125 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
+import { normalizeFundDNA, validateFundDNA } from "@/lib/ai-schemas";
 
 export const runtime = "nodejs";
 
-const emptyFundDNA = {
-  fundName: "",
-  targetFundSize: "",
-  stage: "",
-  geography: "",
-  sectorFocus: [] as string[],
-  idealLPTypes: [] as string[],
-  targetLPCheckSize: "",
-  strongestDifferentiators: [] as string[],
-  likelyLPObjections: [] as string[],
-  suggestedFundraisingNarrative: "",
-  confidenceScore: 0.75,
-};
+const MAX_FILE_BYTES = 12 * 1024 * 1024;
+const MODEL = process.env.OPENAI_EXTRACTION_MODEL || "gpt-4o-mini";
+const PROMPT_VERSION = "fund-dna-mvp-v1";
 
-function list(value: unknown) {
-  return Array.isArray(value)
-    ? value.map(String).map((x) => x.trim()).filter(Boolean)
-    : typeof value === "string" && value.trim()
-      ? value.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean)
-      : [];
+function cleanInput(value: FormDataEntryValue | null) {
+  return String(value || "").replace(/\u0000/g, "").trim().slice(0, 60000);
 }
 
-function text(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizeFundDNA(raw: Record<string, unknown>) {
-  const confidence = Number(raw.confidenceScore);
-  return {
-    fundName: text(raw.fundName),
-    targetFundSize: text(raw.targetFundSize),
-    stage: text(raw.stage),
-    geography: text(raw.geography),
-    sectorFocus: list(raw.sectorFocus),
-    idealLPTypes: list(raw.idealLPTypes),
-    targetLPCheckSize: text(raw.targetLPCheckSize),
-    strongestDifferentiators: list(raw.strongestDifferentiators),
-    likelyLPObjections: list(raw.likelyLPObjections),
-    suggestedFundraisingNarrative: text(raw.suggestedFundraisingNarrative),
-    confidenceScore: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : emptyFundDNA.confidenceScore,
-  };
+async function extractPdfText(file: File) {
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const decoded = buffer.toString("latin1");
+  const chunks = Array.from(decoded.matchAll(/\(([^()]{8,})\)\s*Tj/g)).map((match) => match[1]);
+  const tjChunks = Array.from(decoded.matchAll(/\[((?:.|\n){8,}?)\]\s*TJ/g)).flatMap((match) => Array.from(match[1].matchAll(/\(([^()]{3,})\)/g)).map((part) => part[1]));
+  return [...chunks, ...tjChunks].join(" ").replace(/\\([()\\])/g, "$1").replace(/\s+/g, " ").trim();
 }
 
 async function readFundMaterials(form: FormData) {
-  const pasted = String(form.get("materials") || "").trim();
+  const fields = {
+    fundName: cleanInput(form.get("fundName")),
+    targetFundSize: cleanInput(form.get("targetFundSize")),
+    fundStage: cleanInput(form.get("fundStage")),
+    sectors: cleanInput(form.get("sectors")),
+    geography: cleanInput(form.get("geography")),
+    typicalInvestmentCheck: cleanInput(form.get("typicalInvestmentCheck")),
+    gpBackground: cleanInput(form.get("gpBackground")),
+    investmentThesis: cleanInput(form.get("investmentThesis")),
+    pastedMaterials: cleanInput(form.get("materials")),
+  };
   const file = form.get("file");
-  if (pasted) return { text: pasted, document: { name: "Pasted fund materials", size: pasted.length, type: "text/plain" } };
-  if (!(file instanceof File)) return { text: "", document: null };
-  const lower = file.name.toLowerCase();
-  const isText = file.type === "text/plain" || lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".markdown");
-  if (!isText) {
-    return {
-      text: "",
-      document: { name: file.name, size: file.size, type: file.type || "unknown" },
-      error: "Paste the fund deck/thesis text or upload a TXT/Markdown file. PDF/DOCX binary parsing is not enabled in this demo environment.",
-    };
+  let pdfText = "";
+  let document = null as null | { name: string; size: number; type: string; extractedTextLength: number };
+  if (file instanceof File && file.size > 0) {
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) return { error: "Upload a PDF fund deck. TXT fields can be pasted into the form.", status: 415, fields, document };
+    if (file.size > MAX_FILE_BYTES) return { error: "PDF file is too large. Maximum size is 12MB.", status: 413, fields, document };
+    pdfText = await extractPdfText(file);
+    document = { name: file.name, size: file.size, type: file.type || "application/pdf", extractedTextLength: pdfText.length };
   }
-  return { text: (await file.text()).trim(), document: { name: file.name, size: file.size, type: file.type || "text/plain" } };
+  const text = [
+    `Fund name: ${fields.fundName}`,
+    `Target fund size: ${fields.targetFundSize}`,
+    `Fund stage: ${fields.fundStage}`,
+    `Investment sectors: ${fields.sectors}`,
+    `Geography: ${fields.geography}`,
+    `Typical investment check: ${fields.typicalInvestmentCheck}`,
+    `GP background: ${fields.gpBackground}`,
+    `Investment thesis: ${fields.investmentThesis}`,
+    fields.pastedMaterials ? `Additional pasted materials:\n${fields.pastedMaterials}` : "",
+    pdfText ? `Extracted PDF deck text:\n${pdfText}` : "",
+  ].filter(Boolean).join("\n\n");
+  return { text, fields, document };
 }
 
-export async function POST(request: Request) {
-  const form = await request.formData();
-  const { text: materials, document, error } = await readFundMaterials(form);
-  if (error) return NextResponse.json({ error, document }, { status: 415 });
-  if (!materials) return NextResponse.json({ error: "Paste fund materials or upload a TXT/Markdown fund memo." }, { status: 400 });
-  if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json(
-      {
-        error: "OPENAI_API_KEY is not configured. Add it to your environment to run real Fund DNA extraction, or use the demo fallback.",
-        code: "missing_openai_key",
-        document,
-      },
-      { status: 501 },
-    );
-  }
-
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const completion = await client.chat.completions.create({
-    model: process.env.OPENAI_EXTRACTION_MODEL || "gpt-4o-mini",
+async function createCompletion(client: OpenAI, materials: string) {
+  return client.chat.completions.create({
+    model: MODEL,
     temperature: 0,
     response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
         content:
-          "You extract a structured Fund DNA profile for an emerging venture fund and return only JSON. Required keys: fundName, targetFundSize, stage, geography, sectorFocus, idealLPTypes, targetLPCheckSize, strongestDifferentiators, likelyLPObjections, suggestedFundraisingNarrative, confidenceScore. sectorFocus, idealLPTypes, strongestDifferentiators, and likelyLPObjections must be arrays of strings. confidenceScore must be 0 to 1.",
+          `Prompt version ${PROMPT_VERSION}. Extract a traceable Fund DNA record for a U.S. emerging venture fund. Return only JSON with keys: fundName, targetFundSize, fundStage, sectors, geography, typicalInvestmentCheck, gpBackground, investmentThesis, fundSummary, investmentStrategy, differentiation, idealLPProfile, likelyFundraisingStrengths, likelyLPConcerns, recommendedPositioning, confidence, evidence. confidence must be low, medium, or high. evidence must be an object mapping every material conclusion to short quoted or paraphrased snippets from the supplied inputs. Do not invent fund facts, LP preferences, check sizes, or performance data.`,
       },
       { role: "user", content: materials },
     ],
   });
+}
 
-  const content = completion.choices[0]?.message?.content || "{}";
-  let parsed: Record<string, unknown> = {};
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return NextResponse.json({ error: "OpenAI returned invalid Fund DNA JSON. Please retry.", raw: content }, { status: 502 });
+export async function POST(request: Request) {
+  const form = await request.formData();
+  const read = await readFundMaterials(form);
+  if ("error" in read) return NextResponse.json({ error: read.error, document: read.document }, { status: read.status });
+  if (!read.text.replace(/Fund name:|Target fund size:|Fund stage:|Investment sectors:|Geography:|Typical investment check:|GP background:|Investment thesis:/g, "").trim()) {
+    return NextResponse.json({ error: "Enter fund details or upload a PDF fund deck before generating Fund DNA." }, { status: 400 });
+  }
+  if (!process.env.OPENAI_API_KEY) {
+    return NextResponse.json({
+      error: "OPENAI_API_KEY is not configured. Fund DNA generation requires a server-side AI provider. Your inputs were not analyzed.",
+      code: "missing_openai_key",
+      document: read.document,
+      inputPreview: read.fields,
+    }, { status: 501 });
   }
 
-  return NextResponse.json({
-    document,
-    fundDNA: normalizeFundDNA(parsed),
-    rawText: materials,
-    source: "openai",
-  });
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  let content = "{}";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const completion = await createCompletion(client, read.text);
+      content = completion.choices[0]?.message?.content || "{}";
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      const fundDNA = normalizeFundDNA(parsed);
+      const missing = validateFundDNA(fundDNA);
+      if (missing.length) throw new Error(`Missing required Fund DNA fields: ${missing.join(", ")}`);
+      return NextResponse.json({
+        document: read.document,
+        fundDNA,
+        source: "openai",
+        trace: {
+          promptVersion: PROMPT_VERSION,
+          model: MODEL,
+          timestamp: new Date().toISOString(),
+          sourceRecordIds: [read.document?.name || "manual-inputs"],
+          outputStatus: "succeeded",
+        },
+        rawText: read.text,
+      });
+    } catch (error) {
+      if (attempt === 1) {
+        return NextResponse.json({
+          error: error instanceof Error ? error.message : "OpenAI returned invalid Fund DNA JSON. Please retry.",
+          raw: content,
+          trace: { promptVersion: PROMPT_VERSION, model: MODEL, timestamp: new Date().toISOString(), sourceRecordIds: [read.document?.name || "manual-inputs"], outputStatus: "failed" },
+        }, { status: 502 });
+      }
+    }
+  }
 }
