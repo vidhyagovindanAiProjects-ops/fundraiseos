@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, BrainCircuit, CalendarDays, Check, ChevronRight, Clock3, Database, FileText, Home, LayoutList, Mail, Menu, Network, Plus, RefreshCw, Search, Send, Settings, Sparkles, Target, UploadCloud, Users, Video, Webhook, X, Zap } from "lucide-react";
 import { activities as seedActivity, demoLPs, type Heat, type LP, type LPType } from "@/lib/demo-data";
 import { normalizeFundDNA, normalizeMeetingExtraction, type FundDNARecord, type MeetingExtractionRecord } from "@/lib/ai-schemas";
-import { createMeetingBrief, lpFromCsv, parseCsvRows, prioritizeThisWeek, timelineEntryFromMeeting, uid, type LiveLPRecord, type LiveTimelineEntry } from "@/lib/live-workspace";
+import { createClient } from "@/lib/supabase/client";
+import { createMeetingBrief, emptyLPDNA, explainLPOpportunity, lpFromCsv, normalizeLPDNA, parseCsvRows, prioritizeThisWeek, timelineEntryFromMeeting, uid, type LPOutcomeEvent, type LiveLPRecord, type LiveTimelineEntry, type RecommendationFeedback, type RecommendationFeedbackValue, type RejectionReason, type RelationshipPath, type RelationshipPathType } from "@/lib/live-workspace";
 
 type Screen = "Home" | "LP Pipeline" | "Meetings" | "Knowledge" | "Discover Investors" | "Integrations" | "Settings" | "Fund DNA" | "Fundraising Strategy" | "LP Opportunities" | "LP Directory" | "Follow-ups" | "Relationship Graph";
 type Task = { id: string; lpId: string; title: string; due: string; done: boolean };
@@ -313,6 +314,12 @@ export function DemoMode() {
   const [myWorkspace, setMyWorkspace] = useState<OnboardingSummary | null>(null);
   const [integrations, setIntegrations] = useState<IntegrationState>(initialIntegrations);
   const [manualEditor, setManualEditor] = useState<LP | "new" | null>(null);
+  const [authEmail, setAuthEmail] = useState<string | null>(null);
+  const [authError, setAuthError] = useState("");
+  useEffect(() => {
+    if (window.location.hostname !== "localhost") return;
+    window.location.replace(`http://127.0.0.1:3001${window.location.pathname}${window.location.search}${window.location.hash}`);
+  }, []);
   const fitResults = useMemo(() => computeFits(profiles, fundDNA), [profiles, fundDNA]);
   const bestFits = useMemo(() => rankedFits(profiles, fitResults), [profiles, fitResults]);
   const strategy = useMemo(() => fundDNA ? generateFundraisingStrategy(fundDNA, profiles, tasks, fitResults) : null, [fundDNA, profiles, tasks, fitResults]);
@@ -340,6 +347,16 @@ export function DemoMode() {
 
   const go = (s: Screen) => { setScreen(s); setMenu(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const notify = (message: string) => { setToast(message); setTimeout(() => setToast(""), 2200); };
+  const goSignIn = () => { window.location.href = "/login"; };
+  const signOut = async () => {
+    const supabase = createClient();
+    if (supabase) await supabase.auth.signOut();
+    setAuthEmail(null);
+    setAuthError("");
+    setMyWorkspace(null);
+    switchWorkspace("Demo Workspace");
+    notify("Signed out");
+  };
   const reset = () => { setWorkspaceMode("Demo Workspace"); setProfiles(demoLPs); setTasks(initialTasks); setFeed(initialFeed); setLatestUploadId(null); setFundDNA(null); setOpportunityOutcomes({}); setIntegrations(initialIntegrations); setSelected(null); setChat(false); setUpload(false); setOnboarding(false); setQuery(""); setScreen("Home"); notify("Demo reset to starting state"); };
   const syncIntegration = (key: IntegrationKey) => {
     const connector = integrationCatalog.find((x) => x.key === key);
@@ -383,18 +400,76 @@ export function DemoMode() {
     }
     setScreen("Home");
   };
-  const saveOnboarding = (summary: OnboardingSummary) => {
-    setMyWorkspace(summary);
-    setWorkspaceMode("My Fund Workspace");
-    setProfiles(summary.profiles);
-    setTasks(summary.tasks);
-    setFeed(summary.feed);
-    setFundDNA(summary.fundDNA);
-    setLatestUploadId(summary.profiles[0]?.id || null);
-    setOpportunityOutcomes({});
-    setOnboarding(false);
-    setScreen("Home");
-    notify("My Fund Workspace created from imported fundraising materials");
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAuthAndWorkspace() {
+      const supabase = createClient();
+      if (!supabase) return;
+      const params = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const authErrorCode = params.get("auth_error") || params.get("error_code") || hashParams.get("error_code") || params.get("error") || hashParams.get("error");
+      const authErrorDescription = params.get("auth_error_description") || params.get("error_description") || hashParams.get("error_description");
+      if (authErrorCode) {
+        const message = authErrorCode === "otp_expired"
+          ? "Authentication link is invalid or expired. Use the newest email link only after the Supabase email rate limit clears."
+          : authErrorDescription || "Authentication failed. Please try signing in again.";
+        if (!cancelled) setAuthError(message);
+        params.delete("auth_error");
+        params.delete("auth_error_description");
+        params.delete("error");
+        params.delete("error_code");
+        params.delete("error_description");
+        params.delete("error_uri");
+        window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+      }
+      if (window.location.hash.includes("access_token") || window.location.hash.includes("error")) {
+        window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+      }
+      const session = await supabase.auth.getSession();
+      const userData = session.data.session?.user ? await supabase.auth.getUser() : { data: { user: null } };
+      if (cancelled) return;
+      setAuthEmail(userData.data.user?.email || null);
+      if (userData.data.user) {
+        const summary = await loadOnboardingWorkspaceFromSupabase();
+        if (summary && !cancelled) {
+          setMyWorkspace(summary);
+          setWorkspaceMode("My Fund Workspace");
+          setProfiles(summary.profiles);
+          setTasks(summary.tasks);
+          setFeed(summary.feed);
+          setFundDNA(summary.fundDNA);
+          setLatestUploadId(summary.profiles[0]?.id || null);
+          setOpportunityOutcomes({});
+          setScreen("Home");
+        }
+      }
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        setAuthEmail(session?.user?.email || null);
+      });
+      return () => data.subscription.unsubscribe();
+    }
+    let unsubscribe: void | (() => void);
+    void loadAuthAndWorkspace().then((cleanup) => { unsubscribe = cleanup; });
+    return () => { cancelled = true; if (unsubscribe) unsubscribe(); };
+  }, []);
+
+  const saveOnboarding = async (summary: OnboardingSummary) => {
+    try {
+      const saved = await saveOnboardingWorkspaceToSupabase(summary);
+      setMyWorkspace(saved);
+      setWorkspaceMode("My Fund Workspace");
+      setProfiles(saved.profiles);
+      setTasks(saved.tasks);
+      setFeed(saved.feed);
+      setFundDNA(saved.fundDNA);
+      setLatestUploadId(saved.profiles[0]?.id || null);
+      setOpportunityOutcomes({});
+      setOnboarding(false);
+      setScreen("Home");
+      notify("My Fund Workspace saved to Supabase");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not save My Fund Workspace");
+    }
   };
 
   const approveExtraction = (extraction: Extraction, rawText: string) => {
@@ -433,12 +508,13 @@ export function DemoMode() {
       <div className="workspace-switch"><button className={workspaceMode === "Demo Workspace" ? "on" : ""} onClick={() => switchWorkspace("Demo Workspace")}>Demo Workspace</button><button className={workspaceMode === "My Fund Workspace" ? "on" : ""} onClick={() => myWorkspace ? switchWorkspace("My Fund Workspace") : setOnboarding(true)}>My Fund Workspace</button></div>
       <nav>{nav.map(([label, Icon]) => <button key={label} className={activeNav(label) ? "active" : ""} onClick={() => go(label)}><Icon /><span>{label}</span>{label === "LP Pipeline" && <i>{metrics.total}</i>}{label === "Meetings" && <i>{metrics.open}</i>}{label === "Home" && <i>{readiness}</i>}</button>)}</nav>
       <button className="health executive-health" onClick={() => go("Home")}><div><Target /><span>Fundraising Readiness</span><b>{readiness}/100</b></div><figure><i style={{ width: `${readiness}%` }} /></figure><p>{outcomeIntel.strategyChange.answer || autonomous[0]?.why || (strategy ? strategy.aiPriorities[0]?.reason : metrics.overdue ? `${metrics.overdue} overdue follow-up reducing score.` : "Strong LP alignment and healthy meeting cadence.")}</p><span>Recommended action: {outcomeIntel.strategyChange.suggestedAction || autonomous[0]?.action || strategy?.aiPriorities[0]?.title || "Complete the Elena Park follow-up today."}</span></button>
-      <div className="story-user"><span>LP</span><p><b>LP Brain</b><small>{workspaceMode}</small></p></div>
+      <div className="story-user"><span>LP</span><p><b>LP Brain</b><small>{authEmail ? `Signed in: ${authEmail}` : "Not signed in"}</small></p></div>
     </aside>
     {menu && <div className="scrim" onClick={() => setMenu(false)} />}
     <main>
-      <header><button className="hamb" aria-label="Open menu" onClick={() => setMenu(true)}><Menu /></button><div className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => go("LP Pipeline")} placeholder="Search LPs, firms, interests..." /></div><div className="head-actions"><span className="live-state"><i />{workspaceMode}</span><button className="reset-demo" onClick={() => setOnboarding(true)}>Onboard fund</button><button className="reset-demo" onClick={() => setManualEditor("new")}>Add LP</button><button className="reset-demo" onClick={() => setFeedback(true)}>Feedback</button><button className="reset-demo" onClick={reset}>Reset demo</button><button className="primary" onClick={() => setUpload(true)}><Plus /><span>Upload meeting note</span></button></div></header>
+      <header><button className="hamb" aria-label="Open menu" onClick={() => setMenu(true)}><Menu /></button><div className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} onFocus={() => go("LP Pipeline")} placeholder="Search LPs, firms, interests..." /></div><div className="head-actions"><span className="live-state"><i />{workspaceMode}</span>{authEmail ? <button className="reset-demo auth-control" onClick={signOut}>Signed in: {authEmail} · Sign out</button> : <button className="primary auth-control" onClick={goSignIn}>Sign in</button>}<button className="reset-demo" onClick={() => setOnboarding(true)}>Onboard fund</button><button className="reset-demo" onClick={() => setManualEditor("new")}>Add LP</button><button className="reset-demo" onClick={() => setFeedback(true)}>Feedback</button><button className="reset-demo" onClick={reset}>Reset demo</button><button className="primary" onClick={() => setUpload(true)}><Plus /><span>Upload meeting note</span></button></div></header>
       <div className="page demo-page ai-page">
+        {authError && <div className="panel auth-error-banner"><b>Authentication issue</b><span>{authError}</span><button onClick={() => setAuthError("")}>Dismiss</button></div>}
         {screen === "Home" && <DashboardView profiles={profiles} tasks={tasks} feed={feed} metrics={metrics} latestUploadId={latestUploadId} fundDNA={fundDNA} strategy={strategy} bestFits={bestFits} go={go} openLP={setSelected} openChat={() => setChat(true)} openUpload={() => setUpload(true)} openOnboarding={() => setOnboarding(true)} workspaceMode={workspaceMode} onboardingSummary={myWorkspace} signals={signals} forecast={forecast} autonomous={autonomous} outcomeIntel={outcomeIntel} discovery={discovery} fitResults={fitResults} />}
         {screen === "LP Pipeline" && <PipelineWorkspace profiles={profiles} query={query} fitResults={fitResults} opportunities={opportunities} outcomes={opportunityOutcomes} openLP={setSelected} go={go} signals={signals} />}
         {screen === "Meetings" && <MeetingsWorkspace profiles={profiles} tasks={tasks} feed={feed} openUpload={() => setUpload(true)} toggle={(id) => setTasks((t) => t.map((x) => x.id === id ? { ...x, done: !x.done } : x))} />}
@@ -590,6 +666,12 @@ function signalForLP(lp: LP, tasks: Task[], fit?: LPFit): FundraisingSignal {
   if (lp.status === "Warm") return { label: "warming up", reason: `${lp.activity} suggests the relationship is moving forward.`, confidence: 78 };
   if (lp.due.toLowerCase().includes("quarterly") || lp.concern.toLowerCase().includes("timing")) return { label: "cooling down", reason: `Timing or objection signals suggest the GP should use updates instead of pushing a meeting.`, confidence: 74 };
   return { label: "inactive", reason: `No near-term meeting, document request, or commitment signal is active.`, confidence: 69 };
+}
+
+function confidenceLabel(score: number) {
+  if (score >= 86) return "HIGH";
+  if (score >= 72) return "MEDIUM";
+  return "LOW";
 }
 
 function timelineForLP(lp: LP, tasks: Task[], fit?: LPFit): TimelineEvent[] {
@@ -966,12 +1048,12 @@ function answerDiscoveryQuestion(low: string, discovery: ReturnType<typeof disco
   const asked = top.find((opp) => low.includes(opp.lpName.toLowerCase()) || low.includes(opp.organization.toLowerCase())) || top[0];
   if (!/(discover|discovery|new lp|new investor|investor opportunities|lp discovery|top 10|pursue this week|highest-fit lp|highest fit investor)/i.test(low) && !top.some((opp) => low.includes(opp.lpName.toLowerCase()) || low.includes(opp.organization.toLowerCase()))) return "";
   if (asked && (low.includes("why") || low.includes("rank") || low.includes(asked.lpName.toLowerCase()) || low.includes(asked.organization.toLowerCase()))) {
-    return `Discovery reasoning for ${asked.lpName} - ${asked.organization}:\n\nProvider: ${asked.providerName} (${asked.providerLabel})\n${asked.providerEvidence}\n\nWhy selected: ${asked.whyMatches}\n\nWhy it ranks above other LPs: ${asked.whyRanksAbove}\n\nEvidence:\n${asked.evidence.map((x) => `- ${x}`).join("\n")}\n\nConfidence: ${asked.confidenceScore}%\nExpected check size: ${asked.expectedCheckSize}\nWarm intro possibilities: ${asked.warmIntroPossibilities.join(", ")}\nLikely objections: ${asked.likelyObjections.join(", ")}\nSuggested first outreach: ${asked.suggestedFirstOutreach}\nRecommended timing: ${asked.recommendedTiming}`;
+    return `Discovery reasoning for ${asked.lpName} - ${asked.organization}:\n\nProvider: ${asked.providerName} (${asked.providerLabel})\n${asked.providerEvidence}\n\nWhy selected: ${asked.whyMatches}\n\nWhy it ranks above other LPs: ${asked.whyRanksAbove}\n\nEvidence:\n${asked.evidence.map((x) => `- ${x}`).join("\n")}\n\nConfidence: ${confidenceLabel(asked.confidenceScore)}\nExpected check size: ${asked.expectedCheckSize}\nWarm intro possibilities: ${asked.warmIntroPossibilities.join(", ")}\nLikely objections: ${asked.likelyObjections.join(", ")}\nSuggested first outreach: ${asked.suggestedFirstOutreach}\nRecommended timing: ${asked.recommendedTiming}`;
   }
   if (low.includes("insight") || low.includes("found") || low.includes("matching")) {
     return `Discovery Insights:\n- Provider status: ${discovery.insights.providerSummary}\n- We found ${discovery.insights.totalMatches} LPs matching your Fund DNA.\n- ${discovery.insights.strongFamilyOfficeFits} are strong family office fits.\n- ${discovery.insights.emergingAIManagerInvestors} previously invested in or track emerging AI managers.\n- ${discovery.insights.requiresWarmIntro} likely require warm introductions.\n- Strongest segment: ${discovery.insights.strongestSegment}.\n- Thesis signal: ${discovery.insights.thesisSignal}.`;
   }
-  return `Top 10 new LPs to pursue this week:\n${top.map((opp) => `${opp.rank}. ${opp.lpName} - ${opp.organization} (${opp.investorType}). Provider: ${opp.providerName} (${opp.providerLabel}). ${opp.confidenceScore}% confidence. Expected check: ${opp.expectedCheckSize}. Why: ${opp.whyMatches} Next: ${opp.suggestedNextAction}.`).join("\n")}`;
+  return `Top 10 new LPs to pursue this week:\n${top.map((opp) => `${opp.rank}. ${opp.lpName} - ${opp.organization} (${opp.investorType}). Provider: ${opp.providerName} (${opp.providerLabel}). ${confidenceLabel(opp.confidenceScore)} confidence. Expected check: ${opp.expectedCheckSize}. Why: ${opp.whyMatches} Next: ${opp.suggestedNextAction}.`).join("\n")}`;
 }
 function answerOutcomeQuestion(low: string, intel: FundraisingOutcomeIntelligence) {
   const match = intel.recommendations.find((insight) => {
@@ -980,17 +1062,17 @@ function answerOutcomeQuestion(low: string, intel: FundraisingOutcomeIntelligenc
   });
   if (low.includes("what should change") || low.includes("strategy this week") || low.includes("learned")) {
     const x = intel.strategyChange;
-    return `Fundraising Outcome Intelligence:\n${x.answer}\n\nEvidence: ${x.evidence}\nConfidence: ${x.confidence}%\nSuggested action: ${x.suggestedAction}\nExpected impact: ${x.expectedImpact}`;
+    return `Fundraising Outcome Intelligence:\n${x.answer}\n\nEvidence: ${x.evidence}\nConfidence: ${confidenceLabel(x.confidence)}\nSuggested action: ${x.suggestedAction}\nExpected impact: ${x.expectedImpact}`;
   }
   if (!match) return "";
-  return `${match.question}\n${match.answer}\n\nEvidence: ${match.evidence}\nConfidence: ${match.confidence}%\nSuggested action: ${match.suggestedAction}\nExpected impact: ${match.expectedImpact}`;
+  return `${match.question}\n${match.answer}\n\nEvidence: ${match.evidence}\nConfidence: ${confidenceLabel(match.confidence)}\nSuggested action: ${match.suggestedAction}\nExpected impact: ${match.expectedImpact}`;
 }
 
 function answerOpportunityQuestion(low: string, opportunities: LPOpportunity[], outcomes: Record<string, OpportunityOutcome>) {
   if (!opportunities.length) return "";
   const active = opportunities.filter((opp) => !["Passed", "Not a fit"].includes(opportunityStatus(opp.id, outcomes).status)); const pool = active.length ? active : opportunities; const top = pool[0], asked = findAskedOpportunity(opportunities, low) || top, insights = learningInsights(opportunities, outcomes);
   if (low.includes("contact next") || low.includes("what should") || low.includes("do today")) return `The GP should contact next:\n${pool.slice(0, 3).map((opp, i) => `${i + 1}. ${opp.name} - ${opp.organization}. ${opp.estimatedFitScore}% estimated fit. Action: ${opp.suggestedFirstAction}. Reason: ${opp.whyRecommended}`).join("\n")}`;
-  if (low.includes("highest fit") || low.includes("opportunities have the highest") || low.includes("opportunity pipeline")) return `Highest-fit LP opportunities:\n${opportunities.slice(0, 6).map((opp, i) => `${i + 1}. ${opp.name} - ${opp.organization}: ${opp.estimatedFitScore}% fit, ${opp.confidenceScore}% confidence. ${opp.suggestedOutreachAngle}`).join("\n")}`;
+  if (low.includes("highest fit") || low.includes("opportunities have the highest") || low.includes("opportunity pipeline")) return `Highest-fit LP opportunities:\n${opportunities.slice(0, 6).map((opp, i) => `${i + 1}. ${opp.name} - ${opp.organization}: ${opp.estimatedFitScore}% fit, ${confidenceLabel(opp.confidenceScore)} confidence. ${opp.suggestedOutreachAngle}`).join("\n")}`;
   if (low.includes("warm introduction") || low.includes("warm intro") || low.includes("intro")) return `LP opportunities needing warm introductions:\n${opportunities.slice(0, 5).map((opp, i) => `${i + 1}. ${opp.name}: ${opp.introPath.join(" → ")}. Ask: ${opp.recommendedIntroAsk}`).join("\n")}`;
   if (low.includes("draft") || low.includes("outreach")) return `Draft outreach for ${asked.name}:\n${asked.outreachPlaybook.email}\n\nLinkedIn: ${asked.outreachPlaybook.linkedIn}\n\nFollow-up sequence:\n${asked.outreachPlaybook.followUpSequence.map((x) => `- ${x}`).join("\n")}`;
   if (low.includes("passed") || low.includes("learning") || low.includes("learn")) return `Learning from passed / not-fit opportunities:\nMost common objections: ${insights.objections.join(", ")}.\nRecommended adjustment: ${insights.adjustment}`;
@@ -1010,10 +1092,276 @@ function OutcomeInsights({ intel, openChat }: { intel: FundraisingOutcomeIntelli
 }
 
 const LIVE_KEY = "lpbrain_live_mvp_workspace_v1";
-type LiveState = { workspaceId: string; fundInputs: Record<string, string>; fundDNA: FundDNARecord | null; lps: LiveLPRecord[]; timeline: LiveTimelineEntry[] };
-const emptyLiveState: LiveState = { workspaceId: "workspace-local", fundInputs: {}, fundDNA: null, lps: [], timeline: [] };
+type LiveState = {
+  workspaceId: string;
+  fundInputs: Record<string, string>;
+  fundDNA: FundDNARecord | null;
+  lps: LiveLPRecord[];
+  timeline: LiveTimelineEntry[];
+  paths: RelationshipPath[];
+  feedback: RecommendationFeedback[];
+  outcomes: LPOutcomeEvent[];
+  persistence: "checking" | "supabase" | "local";
+};
+const emptyLiveState: LiveState = { workspaceId: "workspace-local", fundInputs: {}, fundDNA: null, lps: [], timeline: [], paths: [], feedback: [], outcomes: [], persistence: "checking" };
+const dnaFieldKeys = ["geography", "sectorPreferences", "stagePreferences", "fundSizePreferences", "checkSizeRange", "emergingManagerAppetite", "timingSignals"] as const;
+const relationshipPathTypes: RelationshipPathType[] = ["Direct", "First-degree introduction", "Second-degree introduction", "Weak inferred relationship", "No known path"];
+const feedbackOptions: RecommendationFeedbackValue[] = ["Accept", "Reject", "Already Known", "Already Contacted", "Not Relevant", "Save for Later"];
+const rejectionReasons: RejectionReason[] = ["Wrong LP type", "Wrong check size", "Wrong geography", "Wrong sector", "Wrong timing", "No credible warm path", "Already allocated", "Relationship conflict", "Insufficient information", "Other"];
+const outcomeStages: LPOutcomeEvent["outcomeStage"][] = ["Suggested", "Accepted by GP", "Intro Requested", "Intro Made", "LP Responded", "Meeting Held", "Follow-up", "Diligence", "Data Room Requested", "Soft Indication", "Commitment", "Pass"];
 
-function LiveMvpWorkflow() {
+function fieldLabel(key: string) {
+  return key.replace(/([A-Z])/g, " $1").replace(/^./, (x) => x.toUpperCase());
+}
+
+function normalizeLiveState(value: Partial<LiveState>): LiveState {
+  return {
+    ...emptyLiveState,
+    ...value,
+    paths: value.paths || [],
+    feedback: value.feedback || [],
+    outcomes: value.outcomes || [],
+    lps: (value.lps || []).map((lp) => ({ ...lp, relationshipStrength: lp.relationshipStrength || "Unknown", priorInteractions: lp.priorInteractions || "Unknown", lpDNA: normalizeLPDNA(lp.lpDNA) })),
+  };
+}
+
+function lpToDb(lp: LiveLPRecord, ownerId: string) {
+  const dna = normalizeLPDNA(lp.lpDNA);
+  return {
+    id: lp.id,
+    workspace_id: lp.workspaceId,
+    owner_id: ownerId,
+    name: lp.name,
+    organization: lp.organization,
+    lp_type: lp.lpType,
+    email: lp.email,
+    relationship_owner: lp.relationshipOwner,
+    relationship_source: lp.relationshipSource,
+    relationship_strength: lp.relationshipStrength || "Unknown",
+    prior_interactions: lp.priorInteractions || "Unknown",
+    current_stage: lp.currentStage,
+    estimated_commitment_range: lp.estimatedCommitmentRange,
+    next_action: lp.nextAction,
+    next_action_date: lp.nextActionDate || null,
+    notes: lp.notes,
+    geography: dna.geography,
+    sector_preferences: dna.sectorPreferences,
+    stage_preferences: dna.stagePreferences,
+    fund_size_preferences: dna.fundSizePreferences,
+    check_size_range: dna.checkSizeRange,
+    emerging_manager_appetite: dna.emergingManagerAppetite,
+    timing_signals: dna.timingSignals,
+    lp_dna: dna,
+    updated_at: lp.updatedAt,
+  };
+}
+
+function lpFromDb(row: Record<string, any>): LiveLPRecord {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    organization: row.organization,
+    lpType: row.lp_type,
+    email: row.email,
+    relationshipOwner: row.relationship_owner,
+    relationshipSource: row.relationship_source || "Unknown",
+    relationshipStrength: row.relationship_strength || "Unknown",
+    priorInteractions: row.prior_interactions || "Unknown",
+    currentStage: row.current_stage || "Not started",
+    estimatedCommitmentRange: row.estimated_commitment_range || "Unknown",
+    nextAction: row.next_action || "",
+    nextActionDate: row.next_action_date || "",
+    notes: row.notes || "",
+    lpDNA: normalizeLPDNA(row.lp_dna || {
+      geography: row.geography,
+      sectorPreferences: row.sector_preferences,
+      stagePreferences: row.stage_preferences,
+      fundSizePreferences: row.fund_size_preferences,
+      checkSizeRange: row.check_size_range,
+      emergingManagerAppetite: row.emerging_manager_appetite,
+      timingSignals: row.timing_signals,
+    }),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function pathToDb(path: RelationshipPath, ownerId: string) {
+  return { id: path.id, workspace_id: path.workspaceId, owner_id: ownerId, lp_id: path.lpId, source_person: path.sourcePerson, target_person: path.targetPerson, path_type: path.pathType, relationship_strength: path.relationshipStrength, evidence_source: path.evidenceSource, evidence_text: path.evidenceText, notes: path.notes, last_verified_date: path.lastVerifiedDate || null, updated_at: path.updatedAt };
+}
+
+function pathFromDb(row: Record<string, any>): RelationshipPath {
+  return { id: row.id, workspaceId: row.workspace_id, lpId: row.lp_id, sourcePerson: row.source_person, targetPerson: row.target_person, pathType: row.path_type, relationshipStrength: row.relationship_strength || "Unknown", evidenceSource: row.evidence_source || "", evidenceText: row.evidence_text || "", notes: row.notes || "", lastVerifiedDate: row.last_verified_date || "", createdAt: row.created_at, updatedAt: row.updated_at };
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function slug(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "lp";
+}
+
+function isoDate(value: string) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+}
+
+function liveStageFromHeat(status: Heat): LiveLPRecord["currentStage"] {
+  if (status === "Hot") return "Diligence";
+  if (status === "Warm") return "Contacted";
+  return "Not started";
+}
+
+function onboardingSummaryWithUuidProfiles(summary: OnboardingSummary): OnboardingSummary {
+  const idMap = new Map<string, string>();
+  const profiles = summary.profiles.map((profile) => {
+    const id = isUuid(profile.id) ? profile.id : uid("lp");
+    idMap.set(profile.id, id);
+    return { ...profile, id };
+  });
+  const tasks = summary.tasks.map((task) => ({ ...task, lpId: idMap.get(task.lpId) || task.lpId }));
+  return { ...summary, profiles, tasks };
+}
+
+function profileToLiveLP(profile: LP, workspaceId: string): LiveLPRecord {
+  const now = new Date().toISOString();
+  return {
+    id: profile.id,
+    workspaceId,
+    name: profile.name,
+    organization: profile.firm,
+    lpType: profile.type,
+    email: `${slug(`${profile.name}-${profile.firm}`)}@lpbrain.example`,
+    relationshipOwner: "The GP",
+    relationshipSource: profile.source || "Fund onboarding import",
+    relationshipStrength: `${profile.strength}%`,
+    priorInteractions: profile.meetings.map((meeting) => `${meeting.date}: ${meeting.title}`).join("\n") || "Imported during onboarding",
+    lpDNA: normalizeLPDNA({
+      geography: { status: "inferred", value: "Imported workspace data", evidenceSource: profile.source, evidenceText: profile.activity, lastVerifiedDate: now.slice(0, 10) },
+      sectorPreferences: { status: "inferred", value: profile.interest || "Unknown", evidenceSource: profile.event, evidenceText: profile.activity, lastVerifiedDate: now.slice(0, 10) },
+      stagePreferences: { status: "unknown", value: "Unknown", evidenceSource: "", evidenceText: "", lastVerifiedDate: "" },
+      fundSizePreferences: { status: "unknown", value: "Unknown", evidenceSource: "", evidenceText: "", lastVerifiedDate: "" },
+      checkSizeRange: { status: profile.commitmentAmount ? "known" : "unknown", value: profile.commitmentAmount ? money(profile.commitmentAmount) : "Unknown", evidenceSource: profile.event, evidenceText: profile.commitment, lastVerifiedDate: now.slice(0, 10) },
+      emergingManagerAppetite: { status: "inferred", value: profile.status === "Cold" ? "Needs qualification" : "Potential fit", evidenceSource: profile.event, evidenceText: profile.concern, lastVerifiedDate: now.slice(0, 10) },
+      timingSignals: { status: "inferred", value: profile.next || "Unknown", evidenceSource: profile.event, evidenceText: profile.due, lastVerifiedDate: now.slice(0, 10) },
+    }),
+    currentStage: liveStageFromHeat(profile.status),
+    estimatedCommitmentRange: profile.commitmentAmount ? money(profile.commitmentAmount) : "Unknown",
+    nextAction: profile.next || "Qualify LP fit",
+    nextActionDate: /^\d{4}-\d{2}-\d{2}$/.test(profile.due) ? profile.due : "",
+    notes: `${profile.activity}\nConcern: ${profile.concern}\nCommitment: ${profile.commitment}`.trim(),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function profileMeetingsToTimeline(profile: LP, workspaceId: string): LiveTimelineEntry[] {
+  const now = new Date().toISOString();
+  return profile.meetings.map((meeting) => ({
+    id: uid("timeline"),
+    workspaceId,
+    lpId: profile.id,
+    date: isoDate(meeting.date),
+    type: "meeting",
+    source: profile.event || "Fund onboarding import",
+    summary: meeting.title,
+    supportingText: meeting.note,
+    createdBy: "The GP",
+    createdAt: now,
+    updatedAt: now,
+  }));
+}
+
+async function getOrCreateLiveWorkspace(ownerId: string) {
+  const supabase = createClient();
+  if (!supabase) throw new Error("Supabase is not configured.");
+  const existing = await supabase.from("workspaces").select("*").eq("owner_id", ownerId).eq("mode", "live").order("created_at", { ascending: true }).limit(1).maybeSingle();
+  if (existing.error) throw new Error("Could not load My Fund Workspace from Supabase.");
+  if (existing.data) return existing.data;
+  const created = await supabase.from("workspaces").insert({ owner_id: ownerId, name: "My Fund Workspace", mode: "live" }).select("*").single();
+  if (created.error || !created.data) throw new Error("Could not create My Fund Workspace in Supabase.");
+  return created.data;
+}
+
+async function saveOnboardingWorkspaceToSupabase(summary: OnboardingSummary): Promise<OnboardingSummary> {
+  const supabase = createClient();
+  if (!supabase) throw new Error("Supabase is not configured.");
+  const userData = await supabase.auth.getUser();
+  const ownerId = userData.data.user?.id;
+  if (!ownerId) throw new Error("Sign in before saving My Fund Workspace.");
+  const workspace = await getOrCreateLiveWorkspace(ownerId);
+  const workspaceId = workspace.id as string;
+  const savedSummary = onboardingSummaryWithUuidProfiles(summary);
+  const now = new Date().toISOString();
+
+  const fundRecord = await supabase.from("fund_dna_records").upsert({
+    id: workspaceId,
+    workspace_id: workspaceId,
+    owner_id: ownerId,
+    original_inputs: { onboardingSummary: savedSummary, files: savedSummary.files },
+    generated_output: savedSummary.fundDNA,
+    status: "approved",
+    output_status: "approved",
+    approved_at: now,
+    updated_at: now,
+  }).select("id").single();
+  if (fundRecord.error) throw new Error("Could not save Fund DNA to Supabase.");
+
+  const liveLps = savedSummary.profiles.map((profile) => profileToLiveLP(profile, workspaceId));
+  if (liveLps.length) {
+    const lpResult = await supabase.from("live_lp_records").upsert(liveLps.map((lp) => lpToDb(lp, ownerId)), { onConflict: "workspace_id,email" });
+    if (lpResult.error) throw new Error("Could not save LP records to Supabase.");
+  }
+
+  const timeline = savedSummary.profiles.flatMap((profile) => profileMeetingsToTimeline(profile, workspaceId));
+  if (timeline.length) {
+    const timelineResult = await supabase.from("relationship_timeline_entries").upsert(timeline.map((entry) => ({ id: entry.id, workspace_id: entry.workspaceId, owner_id: ownerId, lp_id: entry.lpId, entry_type: entry.type, entry_date: entry.date, source: entry.source, summary: entry.summary, supporting_text: entry.supportingText, created_by: entry.createdBy, updated_at: entry.updatedAt })));
+    if (timelineResult.error) throw new Error("Could not save meeting timeline to Supabase.");
+  }
+
+  await supabase.from("workspaces").update({ updated_at: now }).eq("id", workspaceId);
+  return savedSummary;
+}
+
+function onboardingSummaryFromStored(value: unknown): OnboardingSummary | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const summary = value as Partial<OnboardingSummary>;
+  if (!summary.fundDNA || !Array.isArray(summary.profiles) || !Array.isArray(summary.tasks) || !Array.isArray(summary.feed)) return null;
+  return {
+    fundDNA: summary.fundDNA as FundDNA,
+    profiles: summary.profiles as LP[],
+    tasks: summary.tasks as Task[],
+    feed: summary.feed as Feed[],
+    importedLPs: Number(summary.importedLPs || summary.profiles.length || 0),
+    meetingsDetected: Number(summary.meetingsDetected || 0),
+    opportunitiesGenerated: Number(summary.opportunitiesGenerated || 0),
+    missingInformation: Array.isArray(summary.missingInformation) ? summary.missingInformation : [],
+    recommendedActions: Array.isArray(summary.recommendedActions) ? summary.recommendedActions : [],
+    files: Array.isArray(summary.files) ? summary.files : [],
+  };
+}
+
+async function loadOnboardingWorkspaceFromSupabase(): Promise<OnboardingSummary | null> {
+  try {
+    const supabase = createClient();
+    if (!supabase) return null;
+    const userData = await supabase.auth.getUser();
+    const ownerId = userData.data.user?.id;
+    if (!ownerId) return null;
+    const workspace = await supabase.from("workspaces").select("*").eq("owner_id", ownerId).eq("mode", "live").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    if (workspace.error || !workspace.data) return null;
+    const fund = await supabase.from("fund_dna_records").select("original_inputs").eq("workspace_id", workspace.data.id).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    const stored = (fund.data?.original_inputs as { onboardingSummary?: unknown } | null)?.onboardingSummary;
+    return onboardingSummaryFromStored(stored);
+  } catch {
+    return null;
+  }
+}
+
+function LegacyLiveMvpWorkflow() {
   const [state, setState] = useState<LiveState>(emptyLiveState), [fundJson, setFundJson] = useState(""), [fundFile, setFundFile] = useState<File | null>(null), [lpDraft, setLpDraft] = useState<Partial<LiveLPRecord>>({ relationshipOwner: "The GP", relationshipSource: "Manual", currentStage: "Not started" }), [csv, setCsv] = useState(""), [selectedLP, setSelectedLP] = useState(""), [timelineDraft, setTimelineDraft] = useState<Partial<LiveTimelineEntry>>({ date: new Date().toISOString().slice(0, 10), type: "note", source: "Manual", createdBy: "The GP" }), [meetingNote, setMeetingNote] = useState(""), [meetingDraft, setMeetingDraft] = useState<MeetingExtractionRecord | null>(null), [busy, setBusy] = useState(""), [error, setError] = useState(""), [success, setSuccess] = useState("");
   useEffect(() => { try { const saved = localStorage.getItem(LIVE_KEY); if (saved) setState(JSON.parse(saved)); } catch { setError("Could not load saved local workspace data."); } }, []);
   useEffect(() => { localStorage.setItem(LIVE_KEY, JSON.stringify(state)); }, [state]);
@@ -1052,6 +1400,214 @@ function LiveMvpWorkflow() {
   return <section className="panel live-mvp-workflow"><div className="panel-head"><div><h2>Live MVP Workflow</h2><p>Fund Setup → LP Record → Timeline → Meeting Prep → Meeting Intelligence → This Week. Demo data stays separate from these live records.</p></div><span>{state.fundDNA ? "Fund DNA approved" : "Setup required"}</span></div><p className="privacy-note">Privacy notice: upload only authorized materials. File type and size are validated; fund decks, transcripts, emails, and sensitive notes are not printed to application logs.</p>{error && <p className="phase-upload-error">{error}</p>}{success && <p className="live-success"><Check />{success}</p>}<div className="live-mvp-grid"><article><h3>1. Fund Setup</h3><div className="live-form-grid">{["fundName", "targetFundSize", "fundStage", "sectors", "geography", "typicalInvestmentCheck"].map((key) => <input key={key} value={state.fundInputs[key] || ""} onChange={(e) => setFundInput(key, e.target.value)} placeholder={key.replace(/([A-Z])/g, " $1")} />)}</div><textarea value={state.fundInputs.gpBackground || ""} onChange={(e) => setFundInput("gpBackground", e.target.value)} placeholder="GP background" /><textarea value={state.fundInputs.investmentThesis || ""} onChange={(e) => setFundInput("investmentThesis", e.target.value)} placeholder="Investment thesis" /><input type="file" accept="application/pdf,.pdf" onChange={(e) => setFundFile(e.target.files?.[0] || null)} /><button onClick={generateFundDNA} disabled={busy === "fund"}><Sparkles />{busy === "fund" ? "Generating..." : "Generate Fund DNA"}</button>{fundJson && <><textarea className="json-review" value={fundJson} onChange={(e) => setFundJson(e.target.value)} /><button onClick={approveFundDNA}><Check />Approve Fund DNA</button></>}</article><article><h3>2. LP Relationship Record</h3><div className="live-form-grid">{["name", "organization", "lpType", "email", "relationshipOwner", "relationshipSource", "estimatedCommitmentRange", "nextAction", "nextActionDate"].map((key) => <input key={key} value={String((lpDraft as Record<string, unknown>)[key] || "")} onChange={(e) => setLP(key, e.target.value)} placeholder={key.replace(/([A-Z])/g, " $1")} />)}</div><textarea value={lpDraft.notes || ""} onChange={(e) => setLP("notes", e.target.value)} placeholder="Notes" /><button onClick={saveLP}><Plus />Add LP</button><textarea value={csv} onChange={(e) => setCsv(e.target.value)} placeholder="CSV import: name, organization, lp type, email, stage, next action..." /><button onClick={importCsv}><Database />Import CSV</button></article><article><h3>3. Relationship Timeline</h3><select value={selected?.id || ""} onChange={(e) => setSelectedLP(e.target.value)}>{state.lps.map((lp) => <option key={lp.id} value={lp.id}>{lp.name} — {lp.organization}</option>)}</select><div className="live-form-grid"><input type="date" value={timelineDraft.date || ""} onChange={(e) => setTimelineDraft((x) => ({ ...x, date: e.target.value }))} /><input value={timelineDraft.source || ""} onChange={(e) => setTimelineDraft((x) => ({ ...x, source: e.target.value }))} placeholder="Source" /></div><textarea value={timelineDraft.summary || ""} onChange={(e) => setTimelineDraft((x) => ({ ...x, summary: e.target.value }))} placeholder="Summary" /><textarea value={timelineDraft.supportingText || ""} onChange={(e) => setTimelineDraft((x) => ({ ...x, supportingText: e.target.value }))} placeholder="Supporting text" /><button onClick={saveTimeline}><Check />Save timeline entry</button><div className="mini-list">{state.timeline.filter((entry) => !selected || entry.lpId === selected.id).slice(0, 4).map((entry) => <p key={entry.id}><b>{entry.date}</b> {entry.summary}<button onClick={() => setTimelineDraft(entry)}>Edit</button><button onClick={() => setState((current) => ({ ...current, timeline: current.timeline.filter((x) => x.id !== entry.id) }))}>Delete</button></p>)}</div></article><article><h3>4. Prepare for Meeting</h3>{brief ? <div className="meeting-brief"><p><b>Relationship:</b> {brief.relationshipSummary}</p><p><b>Previous:</b> {brief.previousInteractionSummary}</p><p><b>Alignment:</b> {brief.likelyAreasOfAlignment.join(" ")}</p><p><b>Concerns:</b> {brief.possibleConcerns.join(" ")}</p><p><b>Questions:</b> {brief.recommendedQuestions.join(" | ")}</p><p><b>Gaps:</b> {brief.informationGaps.join(" | ") || "No critical gaps detected."}</p><small><b>Sources:</b> {brief.citations.join(" • ")}</small><small><b>Assumptions:</b> {brief.assumptions.join(" ")}</small></div> : <p className="empty-state">Add an LP to generate an evidence-backed meeting brief.</p>}</article><article><h3>5. Meeting Intelligence</h3><textarea value={meetingNote} onChange={(e) => setMeetingNote(e.target.value)} placeholder="Paste meeting notes or transcript..." /><button onClick={extractMeeting} disabled={busy === "meeting"}><Sparkles />{busy === "meeting" ? "Extracting..." : "Extract meeting intelligence"}</button>{meetingDraft && <><textarea className="json-review" value={JSON.stringify(meetingDraft, null, 2)} readOnly /><button onClick={approveMeeting}><Check />Save to selected LP timeline</button></>}</article><article><h3>6. This Week</h3>{thisWeek.length ? thisWeek.slice(0, 8).map((item) => <div className={`week-item ${item.priority}`} key={item.id}><b>{item.lpName}: {item.label}</b><small>{item.reason}</small></div>) : <p className="empty-state">No due actions yet. Add LP next actions or timeline entries to populate This Week.</p>}</article></div></section>;
 }
 
+function LiveMvpWorkflow() {
+  const [state, setState] = useState<LiveState>(emptyLiveState);
+  const [fundJson, setFundJson] = useState("");
+  const [fundFile, setFundFile] = useState<File | null>(null);
+  const [lpDraft, setLpDraft] = useState<Partial<LiveLPRecord>>({ relationshipOwner: "The GP", relationshipSource: "Manual", currentStage: "Not started", lpDNA: emptyLPDNA(), relationshipStrength: "Unknown", priorInteractions: "Unknown" });
+  const [pathDraft, setPathDraft] = useState<Partial<RelationshipPath>>({ pathType: "First-degree introduction", relationshipStrength: "Unknown", sourcePerson: "The GP", targetPerson: "" });
+  const [feedbackDraft, setFeedbackDraft] = useState<{ feedback: RecommendationFeedbackValue; rejectionReason: RejectionReason | ""; notes: string }>({ feedback: "Save for Later", rejectionReason: "", notes: "" });
+  const [outcomeDraft, setOutcomeDraft] = useState<{ outcomeStage: LPOutcomeEvent["outcomeStage"]; notes: string }>({ outcomeStage: "Suggested", notes: "" });
+  const [csv, setCsv] = useState("");
+  const [selectedLP, setSelectedLP] = useState("");
+  const [timelineDraft, setTimelineDraft] = useState<Partial<LiveTimelineEntry>>({ date: new Date().toISOString().slice(0, 10), type: "note", source: "Manual", createdBy: "The GP" });
+  const [meetingNote, setMeetingNote] = useState("");
+  const [meetingDraft, setMeetingDraft] = useState<MeetingExtractionRecord | null>(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const selected = state.lps.find((lp) => lp.id === selectedLP) || state.lps[0];
+  const selectedPaths = selected ? state.paths.filter((path) => path.lpId === selected.id) : [];
+  const thisWeek = prioritizeThisWeek(state.lps, state.timeline);
+  const brief = selected ? createMeetingBrief(state.fundDNA, selected, state.timeline.filter((entry) => entry.lpId === selected.id), selectedPaths) : null;
+  const explanation = selected ? explainLPOpportunity(selected, state.fundDNA, selectedPaths) : null;
+
+  async function persist(next: LiveState) {
+    localStorage.setItem(LIVE_KEY, JSON.stringify(next));
+    const supabase = createClient();
+    if (!supabase || next.persistence !== "supabase") return;
+    const { data: userData } = await supabase.auth.getUser();
+    const ownerId = userData.user?.id;
+    if (!ownerId) return;
+    await supabase.from("workspaces").upsert({ id: next.workspaceId, owner_id: ownerId, name: "My Fund Workspace", mode: "live", updated_at: new Date().toISOString() });
+    if (next.fundDNA) await supabase.from("fund_dna_records").upsert({ id: next.workspaceId, workspace_id: next.workspaceId, owner_id: ownerId, original_inputs: next.fundInputs, generated_output: next.fundDNA, status: "approved", output_status: "approved", approved_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    if (next.lps.length) await supabase.from("live_lp_records").upsert(next.lps.map((lp) => lpToDb(lp, ownerId)));
+    if (next.paths.length) await supabase.from("relationship_paths").upsert(next.paths.map((path) => pathToDb(path, ownerId)));
+    if (next.timeline.length) await supabase.from("relationship_timeline_entries").upsert(next.timeline.map((entry) => ({ id: entry.id, workspace_id: entry.workspaceId, owner_id: ownerId, lp_id: entry.lpId, entry_type: entry.type, entry_date: entry.date, source: entry.source, summary: entry.summary, supporting_text: entry.supportingText, created_by: entry.createdBy, updated_at: entry.updatedAt })));
+    const recommendationRows = next.lps.map((lp) => {
+      const exp = explainLPOpportunity(lp, next.fundDNA, next.paths.filter((path) => path.lpId === lp.id));
+      return { id: `00000000-0000-4000-8000-${lp.id.replace(/-/g, "").slice(0, 12)}`, workspace_id: next.workspaceId, owner_id: ownerId, lp_id: lp.id, recommendation_label: `Review ${lp.name}`, potential_fit: exp.potentialFit, why: exp.why, evidence: exp.evidence, information_gaps: exp.informationGaps, status: "suggested", updated_at: new Date().toISOString() };
+    });
+    if (recommendationRows.length) await supabase.from("lp_recommendations").upsert(recommendationRows);
+    if (next.feedback.length) await supabase.from("recommendation_feedback").upsert(next.feedback.map((item) => ({ id: item.id, workspace_id: item.workspaceId, owner_id: ownerId, recommendation_id: item.recommendationId, lp_id: item.lpId, feedback: item.feedback, rejection_reason: item.rejectionReason || null, notes: item.notes, created_at: item.createdAt })));
+    if (next.outcomes.length) await supabase.from("lp_outcome_events").upsert(next.outcomes.map((item) => ({ id: item.id, workspace_id: item.workspaceId, owner_id: ownerId, lp_id: item.lpId, recommendation_id: item.recommendationId || null, outcome_stage: item.outcomeStage, notes: item.notes, occurred_at: item.occurredAt, created_at: item.createdAt })));
+  }
+
+  function commit(updater: (current: LiveState) => LiveState) {
+    setState((current) => {
+      const next = normalizeLiveState(updater(current));
+      void persist(next);
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const fallback = () => {
+        const saved = localStorage.getItem(LIVE_KEY);
+        if (!cancelled) setState(saved ? normalizeLiveState({ ...JSON.parse(saved), persistence: "local" }) : { ...emptyLiveState, persistence: "local" });
+      };
+      try {
+        const supabase = createClient();
+        if (!supabase) return fallback();
+        const { data: userData } = await supabase.auth.getUser();
+        const ownerId = userData.user?.id;
+        if (!ownerId) return fallback();
+        let { data: workspace } = await supabase.from("workspaces").select("*").eq("owner_id", ownerId).eq("mode", "live").order("created_at", { ascending: true }).limit(1).maybeSingle();
+        if (!workspace) {
+          const created = await supabase.from("workspaces").insert({ owner_id: ownerId, name: "My Fund Workspace", mode: "live" }).select("*").single();
+          workspace = created.data;
+        }
+        if (!workspace) return fallback();
+        const workspaceId = workspace.id as string;
+        const [fund, lps, timeline, paths, feedback, outcomes] = await Promise.all([
+          supabase.from("fund_dna_records").select("*").eq("workspace_id", workspaceId).order("updated_at", { ascending: false }).limit(1).maybeSingle(),
+          supabase.from("live_lp_records").select("*").eq("workspace_id", workspaceId).order("updated_at", { ascending: false }),
+          supabase.from("relationship_timeline_entries").select("*").eq("workspace_id", workspaceId).order("entry_date", { ascending: false }),
+          supabase.from("relationship_paths").select("*").eq("workspace_id", workspaceId).order("updated_at", { ascending: false }),
+          supabase.from("recommendation_feedback").select("*").eq("workspace_id", workspaceId).order("created_at", { ascending: false }),
+          supabase.from("lp_outcome_events").select("*").eq("workspace_id", workspaceId).order("occurred_at", { ascending: false }),
+        ]);
+        if (cancelled) return;
+        setState(normalizeLiveState({
+          workspaceId,
+          persistence: "supabase",
+          fundInputs: (fund.data?.original_inputs as Record<string, string>) || {},
+          fundDNA: (fund.data?.generated_output as FundDNARecord) || null,
+          lps: (lps.data || []).map(lpFromDb),
+          timeline: (timeline.data || []).map((row: Record<string, any>) => ({ id: row.id, workspaceId: row.workspace_id, lpId: row.lp_id, date: row.entry_date, type: row.entry_type, source: row.source, summary: row.summary, supportingText: row.supporting_text || "", createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at })),
+          paths: (paths.data || []).map(pathFromDb),
+          feedback: (feedback.data || []).map((row: Record<string, any>) => ({ id: row.id, workspaceId: row.workspace_id, lpId: row.lp_id, recommendationId: row.recommendation_id, feedback: row.feedback, rejectionReason: row.rejection_reason || "", notes: row.notes || "", createdAt: row.created_at })),
+          outcomes: (outcomes.data || []).map((row: Record<string, any>) => ({ id: row.id, workspaceId: row.workspace_id, lpId: row.lp_id, recommendationId: row.recommendation_id || undefined, outcomeStage: row.outcome_stage, notes: row.notes || "", occurredAt: row.occurred_at, createdAt: row.created_at })),
+        }));
+      } catch {
+        setError("Supabase live persistence is unavailable. Using local fallback; demo data remains separate.");
+        fallback();
+      }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, []);
+
+  function setFundInput(key: string, value: string) { commit((current) => ({ ...current, fundInputs: { ...current.fundInputs, [key]: value } })); }
+  function setLP(key: string, value: string) { setLpDraft((current) => ({ ...current, [key]: value })); }
+  function setDnaField(key: typeof dnaFieldKeys[number], prop: "value" | "status" | "evidenceSource" | "evidenceText" | "lastVerifiedDate", value: string) {
+    setLpDraft((current) => {
+      const dna = normalizeLPDNA(current.lpDNA);
+      return { ...current, lpDNA: { ...dna, [key]: { ...dna[key], [prop]: value } } };
+    });
+  }
+  async function generateFundDNA() {
+    setBusy("fund"); setError(""); setSuccess("");
+    const form = new FormData();
+    Object.entries(state.fundInputs).forEach(([key, value]) => form.append(key, value));
+    if (fundFile) form.append("file", fundFile);
+    try {
+      const res = await fetch("/api/fund-dna", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fund DNA generation failed");
+      const dna = normalizeFundDNA(data.fundDNA);
+      setFundJson(JSON.stringify(dna, null, 2));
+      setSuccess("Fund DNA generated. Review/edit JSON before approving.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Fund DNA generation failed"); } finally { setBusy(""); }
+  }
+  function approveFundDNA() {
+    try {
+      const dna = normalizeFundDNA(JSON.parse(fundJson));
+      commit((current) => ({ ...current, fundDNA: dna }));
+      setSuccess("Fund DNA approved and saved.");
+      setError("");
+    } catch { setError("Fund DNA JSON is invalid."); }
+  }
+  function saveLP() {
+    if (!lpDraft.name || !lpDraft.organization || !lpDraft.lpType || !lpDraft.email) return setError("LP name, organization, LP type, and email are required.");
+    const now = new Date().toISOString();
+    const lp: LiveLPRecord = { id: lpDraft.id || uid("live-lp"), workspaceId: state.workspaceId, name: lpDraft.name, organization: lpDraft.organization, lpType: lpDraft.lpType, email: lpDraft.email, relationshipOwner: lpDraft.relationshipOwner || "The GP", relationshipSource: lpDraft.relationshipSource || "Manual", relationshipStrength: lpDraft.relationshipStrength || "Unknown", priorInteractions: lpDraft.priorInteractions || "Unknown", lpDNA: normalizeLPDNA(lpDraft.lpDNA), currentStage: lpDraft.currentStage || "Not started", estimatedCommitmentRange: lpDraft.estimatedCommitmentRange || "Unknown", nextAction: lpDraft.nextAction || "Qualify LP fit", nextActionDate: lpDraft.nextActionDate || "", notes: lpDraft.notes || "", createdAt: lpDraft.createdAt || now, updatedAt: now };
+    commit((current) => ({ ...current, lps: [lp, ...current.lps.filter((x) => x.id !== lp.id)] }));
+    setSelectedLP(lp.id);
+    setLpDraft({ relationshipOwner: "The GP", relationshipSource: "Manual", currentStage: "Not started", relationshipStrength: "Unknown", priorInteractions: "Unknown", lpDNA: emptyLPDNA() });
+    setSuccess("LP relationship record and LP DNA saved.");
+    setError("");
+  }
+  function importCsv() {
+    const imported = parseCsvRows(csv).map((row) => lpFromCsv(row, state.workspaceId, state.lps)).filter((lp): lp is LiveLPRecord => Boolean(lp));
+    commit((current) => ({ ...current, lps: [...imported, ...current.lps] }));
+    setCsv("");
+    setSuccess(imported.length ? `${imported.length} LP record${imported.length === 1 ? "" : "s"} imported with Unknown for missing LP DNA fields.` : "No valid new LP rows found.");
+  }
+  function saveTimeline() {
+    if (!selected || !timelineDraft.summary || !timelineDraft.date) return setError("Choose an LP and add a timeline date and summary.");
+    const now = new Date().toISOString();
+    const entry: LiveTimelineEntry = { id: timelineDraft.id || uid("tl"), workspaceId: state.workspaceId, lpId: selected.id, date: timelineDraft.date, type: timelineDraft.type || "note", source: timelineDraft.source || "Manual", summary: timelineDraft.summary, supportingText: timelineDraft.supportingText || "", createdBy: timelineDraft.createdBy || "The GP", createdAt: timelineDraft.createdAt || now, updatedAt: now };
+    commit((current) => ({ ...current, timeline: [entry, ...current.timeline.filter((x) => x.id !== entry.id)] }));
+    setTimelineDraft({ date: new Date().toISOString().slice(0, 10), type: "note", source: "Manual", createdBy: "The GP" });
+    setSuccess("Timeline entry saved.");
+    setError("");
+  }
+  function savePath() {
+    if (!selected || !pathDraft.sourcePerson || !pathDraft.targetPerson) return setError("Choose an LP and add source and target people for the relationship path.");
+    const now = new Date().toISOString();
+    const path: RelationshipPath = { id: pathDraft.id || uid("path"), workspaceId: state.workspaceId, lpId: selected.id, sourcePerson: pathDraft.sourcePerson, targetPerson: pathDraft.targetPerson, pathType: pathDraft.pathType || "First-degree introduction", relationshipStrength: pathDraft.relationshipStrength || "Unknown", evidenceSource: pathDraft.evidenceSource || "", evidenceText: pathDraft.evidenceText || "", notes: pathDraft.notes || "", lastVerifiedDate: pathDraft.lastVerifiedDate || "", createdAt: pathDraft.createdAt || now, updatedAt: now };
+    commit((current) => ({ ...current, paths: [path, ...current.paths.filter((x) => x.id !== path.id)] }));
+    setPathDraft({ pathType: "First-degree introduction", relationshipStrength: "Unknown", sourcePerson: "The GP", targetPerson: "" });
+    setSuccess("Relationship path saved.");
+    setError("");
+  }
+  function saveFeedback() {
+    if (!selected) return setError("Choose an LP before saving recommendation feedback.");
+    if (feedbackDraft.feedback === "Reject" && !feedbackDraft.rejectionReason) return setError("Select a rejection reason so this learning signal is useful later.");
+    const now = new Date().toISOString();
+    const recommendationId = `00000000-0000-4000-8000-${selected.id.replace(/-/g, "").slice(0, 12)}`;
+    const item: RecommendationFeedback = { id: uid("feedback"), workspaceId: state.workspaceId, lpId: selected.id, recommendationId, feedback: feedbackDraft.feedback, rejectionReason: feedbackDraft.rejectionReason, notes: feedbackDraft.notes, createdAt: now };
+    commit((current) => ({ ...current, feedback: [item, ...current.feedback] }));
+    setFeedbackDraft({ feedback: "Save for Later", rejectionReason: "", notes: "" });
+    setSuccess("Recommendation Feedback saved as a learning signal. This is not presented as machine learning.");
+  }
+  function saveOutcome() {
+    if (!selected) return setError("Choose an LP before recording an outcome event.");
+    const now = new Date().toISOString();
+    const event: LPOutcomeEvent = { id: uid("outcome"), workspaceId: state.workspaceId, lpId: selected.id, recommendationId: `00000000-0000-4000-8000-${selected.id.replace(/-/g, "").slice(0, 12)}`, outcomeStage: outcomeDraft.outcomeStage, notes: outcomeDraft.notes, occurredAt: now, createdAt: now };
+    commit((current) => ({ ...current, outcomes: [event, ...current.outcomes] }));
+    setOutcomeDraft({ outcomeStage: "Suggested", notes: "" });
+    setSuccess("Outcome event added to historical journey.");
+  }
+  async function extractMeeting() {
+    if (!meetingNote.trim()) return setError("Paste meeting notes before extracting meeting intelligence.");
+    setBusy("meeting"); setError("");
+    try {
+      const form = new FormData();
+      form.append("note", meetingNote);
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Meeting extraction failed");
+      setMeetingDraft(normalizeMeetingExtraction(data.meetingIntelligence || data.extraction));
+      setSuccess("Meeting intelligence extracted. Review before saving.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Meeting extraction failed"); } finally { setBusy(""); }
+  }
+  function approveMeeting() {
+    if (!selected || !meetingDraft) return;
+    const entry = timelineEntryFromMeeting(selected.id, state.workspaceId, meetingDraft, meetingNote);
+    commit((current) => ({ ...current, timeline: [entry, ...current.timeline], lps: current.lps.map((lp) => lp.id === selected.id ? { ...lp, nextAction: meetingDraft.nextAction || lp.nextAction, nextActionDate: meetingDraft.nextActionDate || lp.nextActionDate, notes: `${lp.notes}\n${meetingDraft.conciseMeetingSummary}`.trim(), updatedAt: new Date().toISOString() } : lp) }));
+    setMeetingNote("");
+    setMeetingDraft(null);
+    setSuccess("Meeting intelligence saved to the LP timeline. Pipeline stage was not changed automatically.");
+  }
+
+  const draftDna = normalizeLPDNA(lpDraft.lpDNA);
+  return <section className="panel live-mvp-workflow"><div className="panel-head"><div><h2>Live MVP Workflow</h2><p>Fund Setup → LP DNA → Relationship Paths → Meeting Prep → Meeting Intelligence → This Week. Demo records stay separate from live workspace records.</p></div><span>{state.persistence === "supabase" ? "Supabase persistence" : state.persistence === "local" ? "Local fallback" : "Checking persistence"}</span></div><p className="privacy-note">Privacy notice: upload only authorized materials. Live records persist to Supabase when signed in and the migration is applied; otherwise they remain in local fallback. Unknown LP DNA fields display as Unknown and inferred fields are labeled Inferred.</p>{error && <p className="phase-upload-error">{error}</p>}{success && <p className="live-success"><Check />{success}</p>}<div className="live-mvp-grid"><article><h3>1. Fund Setup</h3><div className="live-form-grid">{["fundName", "targetFundSize", "fundStage", "sectors", "geography", "typicalInvestmentCheck"].map((key) => <input key={key} value={state.fundInputs[key] || ""} onChange={(e) => setFundInput(key, e.target.value)} placeholder={fieldLabel(key)} />)}</div><textarea value={state.fundInputs.gpBackground || ""} onChange={(e) => setFundInput("gpBackground", e.target.value)} placeholder="GP background" /><textarea value={state.fundInputs.investmentThesis || ""} onChange={(e) => setFundInput("investmentThesis", e.target.value)} placeholder="Investment thesis" /><input type="file" accept="application/pdf,.pdf" onChange={(e) => setFundFile(e.target.files?.[0] || null)} /><button onClick={generateFundDNA} disabled={busy === "fund"}><Sparkles />{busy === "fund" ? "Generating..." : "Generate Fund DNA"}</button>{fundJson && <><textarea className="json-review" value={fundJson} onChange={(e) => setFundJson(e.target.value)} /><button onClick={approveFundDNA}><Check />Approve Fund DNA</button></>}</article><article><h3>2. LP Relationship Record + LP DNA</h3><div className="live-form-grid">{["name", "organization", "lpType", "email", "relationshipOwner", "relationshipSource", "relationshipStrength", "priorInteractions", "estimatedCommitmentRange", "nextAction", "nextActionDate"].map((key) => <input key={key} value={String((lpDraft as Record<string, unknown>)[key] || "")} onChange={(e) => setLP(key, e.target.value)} placeholder={fieldLabel(key)} />)}</div>{dnaFieldKeys.map((key) => <div className="lp-dna-row" key={key}><b>{fieldLabel(key)}</b><select value={draftDna[key].status} onChange={(e) => setDnaField(key, "status", e.target.value)}><option value="unknown">Unknown</option><option value="known">Known</option><option value="inferred">Inferred</option></select><input value={draftDna[key].value} onChange={(e) => setDnaField(key, "value", e.target.value || "Unknown")} placeholder="Unknown" /><input value={draftDna[key].evidenceSource} onChange={(e) => setDnaField(key, "evidenceSource", e.target.value)} placeholder="Evidence source" /><textarea value={draftDna[key].evidenceText} onChange={(e) => setDnaField(key, "evidenceText", e.target.value)} placeholder="Evidence text" /><input type="date" value={draftDna[key].lastVerifiedDate} onChange={(e) => setDnaField(key, "lastVerifiedDate", e.target.value)} /></div>) }<textarea value={lpDraft.notes || ""} onChange={(e) => setLP("notes", e.target.value)} placeholder="Notes" /><button onClick={saveLP}><Plus />Save LP</button><textarea value={csv} onChange={(e) => setCsv(e.target.value)} placeholder="CSV import: name, organization, lp type, email, sector preferences, check size range, geography..." /><button onClick={importCsv}><Database />Import CSV</button></article><article><h3>3. Relationship Timeline</h3><select value={selected?.id || ""} onChange={(e) => setSelectedLP(e.target.value)}>{state.lps.map((lp) => <option key={lp.id} value={lp.id}>{lp.name} — {lp.organization}</option>)}</select><div className="live-form-grid"><input type="date" value={timelineDraft.date || ""} onChange={(e) => setTimelineDraft((x) => ({ ...x, date: e.target.value }))} /><input value={timelineDraft.source || ""} onChange={(e) => setTimelineDraft((x) => ({ ...x, source: e.target.value }))} placeholder="Source" /></div><textarea value={timelineDraft.summary || ""} onChange={(e) => setTimelineDraft((x) => ({ ...x, summary: e.target.value }))} placeholder="Summary" /><textarea value={timelineDraft.supportingText || ""} onChange={(e) => setTimelineDraft((x) => ({ ...x, supportingText: e.target.value }))} placeholder="Supporting text" /><button onClick={saveTimeline}><Check />Save timeline entry</button><div className="mini-list">{state.timeline.filter((entry) => !selected || entry.lpId === selected.id).slice(0, 4).map((entry) => <p key={entry.id}><b>{entry.date}</b> {entry.summary}<button onClick={() => setTimelineDraft(entry)}>Edit</button><button onClick={() => commit((current) => ({ ...current, timeline: current.timeline.filter((x) => x.id !== entry.id) }))}>Delete</button></p>)}</div></article><article><h3>4. Relationship Paths</h3><div className="live-form-grid"><input value={pathDraft.sourcePerson || ""} onChange={(e) => setPathDraft((x) => ({ ...x, sourcePerson: e.target.value }))} placeholder="Source person" /><input value={pathDraft.targetPerson || ""} onChange={(e) => setPathDraft((x) => ({ ...x, targetPerson: e.target.value }))} placeholder="Target person" /></div><select value={pathDraft.pathType || "First-degree introduction"} onChange={(e) => setPathDraft((x) => ({ ...x, pathType: e.target.value as RelationshipPathType }))}>{relationshipPathTypes.map((x) => <option key={x}>{x}</option>)}</select><input value={pathDraft.relationshipStrength || ""} onChange={(e) => setPathDraft((x) => ({ ...x, relationshipStrength: e.target.value }))} placeholder="Relationship strength if known" /><input value={pathDraft.evidenceSource || ""} onChange={(e) => setPathDraft((x) => ({ ...x, evidenceSource: e.target.value }))} placeholder="Evidence/source" /><textarea value={pathDraft.evidenceText || ""} onChange={(e) => setPathDraft((x) => ({ ...x, evidenceText: e.target.value }))} placeholder="Evidence text" /><textarea value={pathDraft.notes || ""} onChange={(e) => setPathDraft((x) => ({ ...x, notes: e.target.value }))} placeholder="Notes" /><input type="date" value={pathDraft.lastVerifiedDate || ""} onChange={(e) => setPathDraft((x) => ({ ...x, lastVerifiedDate: e.target.value }))} /><button onClick={savePath}><Network />Save relationship path</button><div className="mini-list">{selectedPaths.map((path) => <p key={path.id}><b>{path.pathType}</b> {path.sourcePerson} → {path.targetPerson}<button onClick={() => setPathDraft(path)}>Edit</button></p>)}</div></article><article><h3>5. Prepare for Meeting</h3>{brief ? <div className="meeting-brief"><p><b>Relationship:</b> {brief.relationshipSummary}</p><p><b>Previous:</b> {brief.previousInteractionSummary}</p><p><b>Best known path:</b> {brief.bestKnownIntroductionPath}</p><p><b>Alignment:</b> {brief.likelyAreasOfAlignment.join(" ")}</p><p><b>Concerns:</b> {brief.possibleConcerns.join(" ")}</p><p><b>Questions:</b> {brief.recommendedQuestions.join(" | ")}</p><p><b>Gaps:</b> {brief.informationGaps.join(" | ") || "No critical gaps detected."}</p><small><b>Sources:</b> {brief.citations.join(" • ")}</small><small><b>Assumptions:</b> {brief.assumptions.join(" ")}</small></div> : <p className="empty-state">Add an LP to generate an evidence-backed meeting brief.</p>}</article><article><h3>6. LP Opportunity Explanation</h3>{explanation ? <div className="meeting-brief"><p><b>Potential Fit:</b> {explanation.potentialFit}</p><p><b>Why:</b> {explanation.why.join(" ") || "No verified fit reason yet."}</p><p><b>Best known relationship path:</b> {explanation.bestKnownRelationshipPath}</p><p><b>Evidence:</b> {explanation.evidence.join(" | ")}</p><p><b>Information gaps:</b> {explanation.informationGaps.join(" | ")}</p><div className="live-form-grid"><select value={feedbackDraft.feedback} onChange={(e) => setFeedbackDraft((x) => ({ ...x, feedback: e.target.value as RecommendationFeedbackValue }))}>{feedbackOptions.map((x) => <option key={x}>{x}</option>)}</select>{feedbackDraft.feedback === "Reject" && <select value={feedbackDraft.rejectionReason} onChange={(e) => setFeedbackDraft((x) => ({ ...x, rejectionReason: e.target.value as RejectionReason }))}><option value="">Select rejection reason</option>{rejectionReasons.map((x) => <option key={x}>{x}</option>)}</select>}</div><textarea value={feedbackDraft.notes} onChange={(e) => setFeedbackDraft((x) => ({ ...x, notes: e.target.value }))} placeholder="Feedback notes" /><button onClick={saveFeedback}><Check />Save Recommendation Feedback</button><div className="live-form-grid"><select value={outcomeDraft.outcomeStage} onChange={(e) => setOutcomeDraft((x) => ({ ...x, outcomeStage: e.target.value as LPOutcomeEvent["outcomeStage"] }))}>{outcomeStages.map((x) => <option key={x}>{x}</option>)}</select></div><textarea value={outcomeDraft.notes} onChange={(e) => setOutcomeDraft((x) => ({ ...x, notes: e.target.value }))} placeholder="Outcome notes" /><button onClick={saveOutcome}><Clock3 />Add outcome event</button><div className="mini-list">{state.outcomes.filter((event) => event.lpId === selected?.id).slice(0, 4).map((event) => <p key={event.id}><b>{event.outcomeStage}</b> {event.notes || "No notes"}<small>{displayDate(event.occurredAt)}</small></p>)}</div></div> : <p className="empty-state">Add an LP to explain opportunity fit.</p>}</article><article><h3>7. Meeting Intelligence</h3><textarea value={meetingNote} onChange={(e) => setMeetingNote(e.target.value)} placeholder="Paste meeting notes or transcript..." /><button onClick={extractMeeting} disabled={busy === "meeting"}><Sparkles />{busy === "meeting" ? "Extracting..." : "Extract meeting intelligence"}</button>{meetingDraft && <><textarea className="json-review" value={JSON.stringify(meetingDraft, null, 2)} readOnly /><button onClick={approveMeeting}><Check />Save to selected LP timeline</button></>}</article><article><h3>8. This Week</h3>{thisWeek.length ? thisWeek.slice(0, 8).map((item) => <div className={`week-item ${item.priority}`} key={item.id}><b>{item.lpName}: {item.label}</b><small>{item.reason}</small></div>) : <p className="empty-state">No due actions yet. Add LP next actions or timeline entries to populate This Week.</p>}</article></div></section>;
+}
+
 function DashboardView({ profiles, tasks, feed, metrics, latestUploadId, fundDNA, strategy, bestFits, go, openLP, openChat, openUpload, openOnboarding, workspaceMode, onboardingSummary, signals, forecast, autonomous, outcomeIntel, discovery, fitResults }: { profiles: LP[]; tasks: Task[]; feed: Feed[]; metrics: { total: number; active: number; warm: number; commitments: number; pipeline: number; open: number; overdue: number; score: number }; latestUploadId: string | null; fundDNA: FundDNA | null; strategy: FundraisingStrategy | null; bestFits: { lp: LP; fit: LPFit }[]; go: (s: Screen) => void; openLP: (lp: LP) => void; openChat: () => void; openUpload: () => void; openOnboarding: () => void; workspaceMode: WorkspaceMode; onboardingSummary: OnboardingSummary | null; signals: Record<string, FundraisingSignal>; forecast: ReturnType<typeof fundraisingForecast>; autonomous: AutonomousRecommendation[]; outcomeIntel: FundraisingOutcomeIntelligence; discovery: ReturnType<typeof discoverInvestors>; fitResults: Record<string, LPFit> }) {
   const focus = fundDNA ? bestFits.slice(0, 4) : [...profiles].sort((a, b) => b.strength - a.strength).slice(0, 4).map((lp) => ({ lp, fit: undefined as LPFit | undefined }));
   const uploaded = latestUploadId ? profiles.find((x) => x.id === latestUploadId) : null;
@@ -1074,9 +1630,9 @@ function DashboardView({ profiles, tasks, feed, metrics, latestUploadId, fundDNA
   return <>
     <section className="ai-hero panel">
       <div>
-        <span>AI FUNDRAISING CHIEF OF STAFF</span>
-        <h1>Your AI Fundraising Chief of Staff.</h1>
-        <p>LP Brain helps emerging venture fund managers prepare for LP meetings, capture relationship intelligence, identify high-probability LPs, and know exactly what to do next.</p>
+        <span>AI-NATIVE LP FUNDRAISING INTELLIGENCE</span>
+        <h1>Your best LP opportunities this week.</h1>
+        <p>LP Brain helps emerging venture fund managers identify the highest-probability LPs, understand why they fit, find credible reach paths, and decide the next action.</p>
         <p className="onboarding-note">Upload your fund deck, GP bio, investment thesis, and optional LP list to generate Fund DNA and LP matching intelligence.</p>
       </div>
       <div className="ai-hero-actions">
@@ -1147,7 +1703,7 @@ function DashboardView({ profiles, tasks, feed, metrics, latestUploadId, fundDNA
         <p><b>Why it matters:</b> {recommendedReason}</p>
         <p><b>Expected impact:</b> {autonomous[0]?.impact || (strategy ? "Moves the highest-probability LP toward diligence or commitment." : "Creates the data layer for autonomous prioritization.")}</p>
         <p><b>Suggested action:</b> {autonomous[0]?.action || (strategy ? "Execute the recommended action, then ask Memory for the exact outreach or prep note." : fundDNA ? "Use the fit engine to prioritize warm LPs before broad outreach." : "Create Fund DNA so LP Brain can rank LP fit and generate strategy.")}</p>
-        <p><b>Confidence:</b> {autonomous[0]?.confidence || 84}%</p>
+        <p><b>Confidence:</b> {confidenceLabel(autonomous[0]?.confidence || 84)}</p>
         <button onClick={() => strategy ? go("Fundraising Strategy") : fundDNA ? go("Fund DNA") : go("Knowledge")}>Open recommendation <ArrowRight /></button>
       </div>
       <div className="panel chief-card readiness-card">
@@ -1173,13 +1729,13 @@ function DashboardView({ profiles, tasks, feed, metrics, latestUploadId, fundDNA
     <section className="panel autonomous-engine">
       <div className="panel-head"><div><h2>LP Matching Intelligence</h2><p>Every new fund material, LP list, meeting note, and outcome sharpens which LP categories are most likely to convert.</p></div><span>Always learning</span></div>
       <div className="autonomous-grid">
-        {autonomous.slice(0, 4).map((rec) => <button key={rec.title} onClick={() => { const lp = rec.lpId ? profiles.find((x) => x.id === rec.lpId) : null; if (lp) openLP(lp); }}><Sparkles /><p><b>{rec.title}</b><small>Why: {rec.why}</small><small>Expected impact: {rec.impact}</small><strong>{rec.confidence}% confidence</strong><em>Suggested action: {rec.action}</em></p></button>)}
+        {autonomous.slice(0, 4).map((rec) => <button key={rec.title} onClick={() => { const lp = rec.lpId ? profiles.find((x) => x.id === rec.lpId) : null; if (lp) openLP(lp); }}><Sparkles /><p><b>{rec.title}</b><small>Why: {rec.why}</small><small>Expected impact: {rec.impact}</small><strong>{confidenceLabel(rec.confidence)} confidence</strong><em>Suggested action: {rec.action}</em></p></button>)}
       </div>
     </section>
 
     <section className="panel discovery-chief">
       <div className="panel-head"><div><h2>Discovery Engine</h2><p>LP Brain recommends new LP opportunities based on Fund DNA, ideal LP personas, outcomes, sector, stage, geography, and check-size fit.</p></div><button onClick={() => go("Discover Investors")}>Open discovery <ArrowRight /></button></div>
-      <div className="discovery-chief-grid">{discovery.opportunities.slice(0, 3).map((opp) => <article key={opp.id}><span>{opp.priority}</span><h3>{opp.lpName}</h3><p>{opp.organization} • {opp.investorType}</p><small><b>Why:</b> {opp.whyMatches}</small><small><b>Expected impact:</b> {opp.expectedImpact}</small><em>{opp.confidenceScore}% confidence • {opp.expectedCheckSize}</em><button onClick={() => go("Discover Investors")}>Pursue this week <ArrowRight /></button></article>)}</div>
+      <div className="discovery-chief-grid">{discovery.opportunities.slice(0, 3).map((opp) => <article key={opp.id}><span>{opp.priority}</span><h3>{opp.lpName}</h3><p>{opp.organization} • {opp.investorType}</p><small><b>Why:</b> {opp.whyMatches}</small><small><b>Expected impact:</b> {opp.expectedImpact}</small><em>{confidenceLabel(opp.confidenceScore)} confidence • {opp.expectedCheckSize}</em><button onClick={() => go("Discover Investors")}>Pursue this week <ArrowRight /></button></article>)}</div>
     </section>
 
     <OutcomeInsights intel={outcomeIntel} openChat={openChat} />
@@ -1187,11 +1743,11 @@ function DashboardView({ profiles, tasks, feed, metrics, latestUploadId, fundDNA
     <section className="workspace-columns">
       <div className="panel action-stack">
         <div className="panel-head"><div><h2>Fundraising Signals</h2><p>Detected automatically for every LP with a reason.</p></div></div>
-        {[...profiles].sort((a, b) => (signals[b.id]?.confidence || 0) - (signals[a.id]?.confidence || 0)).slice(0, 5).map((lp) => <button className="signal-card" key={lp.id} onClick={() => openLP(lp)}><span>{signals[lp.id]?.label}</span><p><b>{lp.name}</b><small>{signals[lp.id]?.reason}</small></p><em>{signals[lp.id]?.confidence}%</em></button>)}
+        {[...profiles].sort((a, b) => (signals[b.id]?.confidence || 0) - (signals[a.id]?.confidence || 0)).slice(0, 5).map((lp) => <button className="signal-card" key={lp.id} onClick={() => openLP(lp)}><span>{signals[lp.id]?.label}</span><p><b>{lp.name}</b><small>{signals[lp.id]?.reason}</small></p><em>{confidenceLabel(signals[lp.id]?.confidence || 0)}</em></button>)}
       </div>
       <div className="panel action-stack">
         <div className="panel-head"><div><h2>Fundraising Forecast</h2><p>Forecast updates when meetings, commitments, fit scores, outcomes, or overdue tasks change.</p></div></div>
-        <div className="forecast-card"><label>Weighted forecast</label><h2>{money(forecast.weighted)}</h2><p>Expected range: {money(forecast.rangeLow)} - {money(forecast.rangeHigh)}</p><p>Confidence: {forecast.confidence}%</p><small>{forecast.risk}</small></div>
+        <div className="forecast-card"><label>Weighted forecast</label><h2>{money(forecast.weighted)}</h2><p>Expected range: {money(forecast.rangeLow)} - {money(forecast.rangeHigh)}</p><p>Confidence: {confidenceLabel(forecast.confidence)}</p><small>{forecast.risk}</small></div>
       </div>
     </section>
 
@@ -1367,12 +1923,23 @@ function Profile({ lp, fit, signal, timeline, artifacts, close, openChat, edit }
   return <div className="drawer-bg" onClick={close}><aside className="profile wide" onClick={(e) => e.stopPropagation()}><header><span>LP PROFILE • RELATIONSHIP INTELLIGENCE</span><button aria-label="Close profile" onClick={close}><X /></button></header><section className="profile-hero"><span className="avatar big" style={{ background: lp.color }}>{lp.initials}</span><h2>{lp.name}</h2><p>{lp.firm} • {lp.type}</p><Status value={lp.status} /><div className="strength"><i><em style={{ width: `${fit?.score || lp.strength}%` }} /></i><span>{fit ? `${fit.score}% LP fit` : `${lp.strength}% relationship strength`}</span></div></section><div className="profile-stats"><p><small>Potential commitment</small><b>{lp.commitmentAmount ? money(lp.commitmentAmount) : "—"}</b></p><p><small>Last contact</small><b>{lp.last}</b></p></div>{lp.event === "Manual Provider" && <section className="profile-section provider-disclosure"><b>Manual Provider</b><span>Manual Workspace Data</span><p>This LP profile was created or edited manually and is available to provider search.</p></section>}{signal && <section className="profile-section autonomous-profile"><h3>Fundraising signal</h3><div className="signal-pill"><b>{signal.label}</b><span>{signal.confidence}% confidence</span></div><p>{signal.reason}</p></section>}<section className="profile-section autonomous-profile"><h3>Relationship intelligence outputs</h3><dl><div><dt>Meeting summary</dt><dd>{artifacts.summary}</dd></div><div><dt>Follow-up email draft</dt><dd><pre>{artifacts.email}</pre></dd></div><div><dt>Relationship notes</dt><dd>{artifacts.crm}</dd></div><div><dt>Next meeting recommendation</dt><dd>{artifacts.nextMeeting}</dd></div><div><dt>Objections detected</dt><dd>{artifacts.objections.join(" | ")}</dd></div><div><dt>Commitment signals</dt><dd>{artifacts.commitmentSignals.join(" | ")}</dd></div><div><dt>Suggested documents</dt><dd>{artifacts.documents.join(", ")}</dd></div></dl></section>{fit && <section className="profile-section"><h3>LP Fit Intelligence</h3><dl><div><dt>Why this LP fits</dt><dd>{fit.why}</dd></div><div><dt>Likely objection</dt><dd>{fit.likelyObjection}</dd></div><div><dt>Outreach angle</dt><dd>{fit.outreachAngle}</dd></div><div><dt>Next best action</dt><dd>{fit.nextBestAction}</dd></div></dl></section>}<section className="profile-section"><h3>Relationship intelligence</h3><dl><div><dt>Introduced by</dt><dd>{lp.source}<small>{lp.event}</small></dd></div><div><dt>Investment interests</dt><dd>{lp.interest}</dd></div><div><dt>Key concern</dt><dd>{lp.concern}</dd></div><div><dt>Next best action</dt><dd>{lp.next}<small>{lp.due}</small></dd></div></dl></section><section className="profile-section ai-event-timeline"><h3>AI Event Timeline</h3>{timeline.map((event, i) => <div key={`${event.kind}-${event.title}-${i}`}><i>{i + 1}</i><p><b>{event.kind}: {event.title}</b><small>{event.date}</small><span>{event.detail}</span></p></div>)}</section><section className="profile-section meeting-history"><h3>Meeting history</h3>{lp.meetings.map((m) => <div key={`${m.date}-${m.title}`}><i /><p><b>{m.title}</b><small>{m.date}</small><span>{m.note}</span></p></div>)}</section><button className="profile-ask" onClick={edit}><FileText />Edit manually</button><button className="profile-ask" onClick={openChat}><Sparkles />Ask LP Brain about {lp.name.split(" ")[0]}</button></aside></div>;
 }
 
+function cleanAIAnswer(text: string) {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .trim();
+}
+
 function Chat({ profiles, tasks, fundDNA, strategy, opportunities, outcomes, fitResults, outcomeIntel, integrations, discovery, providers, close }: { profiles: LP[]; tasks: Task[]; fundDNA: FundDNA | null; strategy: FundraisingStrategy | null; opportunities: LPOpportunity[]; outcomes: Record<string, OpportunityOutcome>; fitResults: Record<string, LPFit>; outcomeIntel: FundraisingOutcomeIntelligence; integrations: IntegrationState; discovery: ReturnType<typeof discoverInvestors>; providers: InvestorProvider[]; close: () => void }) {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string; source?: string }[]>([]);
   const prompts = ["Who should I fundraise from?", "Which LP categories have the highest probability?", "Which LP categories should I avoid?", "Which LPs need a warm introduction?", "What is my most efficient fundraising path?", "Draft outreach for the top LP opportunity.", "What are we learning from passed LPs?", "Which LP type is converting best?", "What should the GP do this week?", "Why are LPs not converting?", "Which introduction source performs best?", "What should change in the strategy this month?", "Discover the top new LPs this week", "Why does Sofia Almeida rank highly?", "Which investor providers are connected?"];
   const context = {
+    currentDate: new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }),
+    currentDateIso: new Date().toISOString(),
     fundDNA,
     lpProfiles: profiles.map((lp) => ({ id: lp.id, name: lp.name, firm: lp.firm, type: lp.type, status: lp.status, strength: lp.strength, interest: lp.interest, interests: lp.interests, lastContact: lp.last, nextAction: lp.next, due: lp.due, introductionSource: lp.source, event: lp.event, concern: lp.concern, commitment: lp.commitment, commitmentAmount: lp.commitmentAmount, recentActivity: lp.activity, meetings: lp.meetings })),
     followUpTasks: tasks,
@@ -1398,7 +1965,7 @@ function Chat({ profiles, tasks, fundDNA, strategy, opportunities, outcomes, fit
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Ask LP Brain failed.");
-      setMessages((m) => [...m, { role: "ai", text: data.answer || "Ask LP Brain did not return an answer.", source: "OpenAI + live workspace context" }]);
+      setMessages((m) => [...m, { role: "ai", text: cleanAIAnswer(data.answer || "Ask LP Brain did not return an answer."), source: "OpenAI + live workspace context" }]);
     } catch (error) {
       setMessages((m) => [...m, { role: "ai", text: error instanceof Error ? error.message : "Ask LP Brain could not reach the AI provider.", source: "AI provider error" }]);
     } finally {

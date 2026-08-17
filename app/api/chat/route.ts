@@ -57,6 +57,7 @@ export async function POST(request: Request) {
             "Answer the user's exact question using only the supplied fundraising memory context.",
             "Use Fund DNA, LP profiles, relationship intelligence, strategy, opportunities, outcomes, and tasks when present.",
             "If the user requests a count or format, follow it exactly.",
+            "Use currentDate/currentDateIso from context when discussing deadlines; do not recommend a deadline that is already in the past.",
             "Separate facts from recommendations when useful.",
             "Do not invent LP preferences, commitments, relationship paths, or external investor data.",
             "Return clean concise prose or bullets. Do not return raw JSON.",
