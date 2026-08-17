@@ -1923,13 +1923,60 @@ function Profile({ lp, fit, signal, timeline, artifacts, close, openChat, edit }
   return <div className="drawer-bg" onClick={close}><aside className="profile wide" onClick={(e) => e.stopPropagation()}><header><span>LP PROFILE • RELATIONSHIP INTELLIGENCE</span><button aria-label="Close profile" onClick={close}><X /></button></header><section className="profile-hero"><span className="avatar big" style={{ background: lp.color }}>{lp.initials}</span><h2>{lp.name}</h2><p>{lp.firm} • {lp.type}</p><Status value={lp.status} /><div className="strength"><i><em style={{ width: `${fit?.score || lp.strength}%` }} /></i><span>{fit ? `${fit.score}% LP fit` : `${lp.strength}% relationship strength`}</span></div></section><div className="profile-stats"><p><small>Potential commitment</small><b>{lp.commitmentAmount ? money(lp.commitmentAmount) : "—"}</b></p><p><small>Last contact</small><b>{lp.last}</b></p></div>{lp.event === "Manual Provider" && <section className="profile-section provider-disclosure"><b>Manual Provider</b><span>Manual Workspace Data</span><p>This LP profile was created or edited manually and is available to provider search.</p></section>}{signal && <section className="profile-section autonomous-profile"><h3>Fundraising signal</h3><div className="signal-pill"><b>{signal.label}</b><span>{signal.confidence}% confidence</span></div><p>{signal.reason}</p></section>}<section className="profile-section autonomous-profile"><h3>Relationship intelligence outputs</h3><dl><div><dt>Meeting summary</dt><dd>{artifacts.summary}</dd></div><div><dt>Follow-up email draft</dt><dd><pre>{artifacts.email}</pre></dd></div><div><dt>Relationship notes</dt><dd>{artifacts.crm}</dd></div><div><dt>Next meeting recommendation</dt><dd>{artifacts.nextMeeting}</dd></div><div><dt>Objections detected</dt><dd>{artifacts.objections.join(" | ")}</dd></div><div><dt>Commitment signals</dt><dd>{artifacts.commitmentSignals.join(" | ")}</dd></div><div><dt>Suggested documents</dt><dd>{artifacts.documents.join(", ")}</dd></div></dl></section>{fit && <section className="profile-section"><h3>LP Fit Intelligence</h3><dl><div><dt>Why this LP fits</dt><dd>{fit.why}</dd></div><div><dt>Likely objection</dt><dd>{fit.likelyObjection}</dd></div><div><dt>Outreach angle</dt><dd>{fit.outreachAngle}</dd></div><div><dt>Next best action</dt><dd>{fit.nextBestAction}</dd></div></dl></section>}<section className="profile-section"><h3>Relationship intelligence</h3><dl><div><dt>Introduced by</dt><dd>{lp.source}<small>{lp.event}</small></dd></div><div><dt>Investment interests</dt><dd>{lp.interest}</dd></div><div><dt>Key concern</dt><dd>{lp.concern}</dd></div><div><dt>Next best action</dt><dd>{lp.next}<small>{lp.due}</small></dd></div></dl></section><section className="profile-section ai-event-timeline"><h3>AI Event Timeline</h3>{timeline.map((event, i) => <div key={`${event.kind}-${event.title}-${i}`}><i>{i + 1}</i><p><b>{event.kind}: {event.title}</b><small>{event.date}</small><span>{event.detail}</span></p></div>)}</section><section className="profile-section meeting-history"><h3>Meeting history</h3>{lp.meetings.map((m) => <div key={`${m.date}-${m.title}`}><i /><p><b>{m.title}</b><small>{m.date}</small><span>{m.note}</span></p></div>)}</section><button className="profile-ask" onClick={edit}><FileText />Edit manually</button><button className="profile-ask" onClick={openChat}><Sparkles />Ask LP Brain about {lp.name.split(" ")[0]}</button></aside></div>;
 }
 
-function cleanAIAnswer(text: string) {
-  return text
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/__(.*?)__/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .trim();
+function renderInlineMarkdown(text: string) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
+
+function renderMarkdownAnswer(text: string) {
+  const lines = text.replace(/\r\n/g, "\n").trim().split("\n");
+  const blocks: React.ReactNode[] = [];
+  let listType: "ul" | "ol" | null = null;
+  let listItems: string[] = [];
+  let paragraph: string[] = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    const value = paragraph.join(" ").replace(/^#{1,6}\s+/, "").trim();
+    if (value) blocks.push(<p key={`p-${blocks.length}`}>{renderInlineMarkdown(value)}</p>);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!listType || !listItems.length) return;
+    const Tag = listType;
+    blocks.push(<Tag key={`list-${blocks.length}`}>{listItems.map((item, index) => <li key={index}>{renderInlineMarkdown(item)}</li>)}</Tag>);
+    listType = null;
+    listItems = [];
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    const bullet = trimmed.match(/^[-*]\s+(.+)/);
+    const numbered = trimmed.match(/^\d+\.\s+(.+)/);
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+    if (bullet || numbered) {
+      flushParagraph();
+      const nextType = bullet ? "ul" : "ol";
+      if (listType && listType !== nextType) flushList();
+      listType = nextType;
+      listItems.push((bullet?.[1] || numbered?.[1] || "").trim());
+      return;
+    }
+    flushList();
+    paragraph.push(trimmed);
+  });
+  flushParagraph();
+  flushList();
+
+  return blocks.length ? blocks : <p>{renderInlineMarkdown(text)}</p>;
 }
 
 function Chat({ profiles, tasks, fundDNA, strategy, opportunities, outcomes, fitResults, outcomeIntel, integrations, discovery, providers, close }: { profiles: LP[]; tasks: Task[]; fundDNA: FundDNA | null; strategy: FundraisingStrategy | null; opportunities: LPOpportunity[]; outcomes: Record<string, OpportunityOutcome>; fitResults: Record<string, LPFit>; outcomeIntel: FundraisingOutcomeIntelligence; integrations: IntegrationState; discovery: ReturnType<typeof discoverInvestors>; providers: InvestorProvider[]; close: () => void }) {
@@ -1965,14 +2012,14 @@ function Chat({ profiles, tasks, fundDNA, strategy, opportunities, outcomes, fit
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Ask LP Brain failed.");
-      setMessages((m) => [...m, { role: "ai", text: cleanAIAnswer(data.answer || "Ask LP Brain did not return an answer."), source: "OpenAI + live workspace context" }]);
+      setMessages((m) => [...m, { role: "ai", text: data.answer || "Ask LP Brain did not return an answer.", source: "OpenAI + live workspace context" }]);
     } catch (error) {
       setMessages((m) => [...m, { role: "ai", text: error instanceof Error ? error.message : "Ask LP Brain could not reach the AI provider.", source: "AI provider error" }]);
     } finally {
       setBusy(false);
     }
   }
-  return <aside className="chat"><div className="chat-head"><span><Sparkles /></span><p><b>LP matchmaker and strategist</b><small>• Grounded in {profiles.length} LP profiles{fundDNA ? " + Fund DNA" : ""}{strategy ? " + Strategy" : ""}{opportunities.length ? " + Opportunities" : ""}</small></p><button aria-label="Close chat" onClick={close}><X /></button></div><div className="chat-body">{messages.length ? <div className="messages">{messages.map((m, i) => <div className={m.role} key={i}><span style={{ whiteSpace: "pre-line" }}>{m.text}</span>{m.role === "ai" && <small><FileText />Source: {m.source || "OpenAI + live workspace context"}</small>}</div>)}</div> : <><div className="chat-intro"><BrainCircuit /><h2>Ask who to target, avoid, access, and convert.</h2><p>Answers use Fund DNA, LP personas, fit scores, fundraising strategy, LP opportunities, discovery signals, relationship intelligence, and learning data.</p></div><div className="suggestions">{prompts.map((x) => <button key={x} onClick={() => ask(x)} disabled={busy}>{x}<ArrowRight /></button>)}</div></>}</div><form onSubmit={(e) => { e.preventDefault(); if (q.trim() && !busy) ask(q); }}><input value={q} onChange={(e) => setQ(e.target.value)} placeholder={busy ? "Asking LP Brain..." : "Ask who to target, avoid, access, or convert..."} /><button aria-label="Send question" disabled={busy}><Send /></button></form></aside>;
+  return <aside className="chat"><div className="chat-head"><span><Sparkles /></span><p><b>LP matchmaker and strategist</b><small>• Grounded in {profiles.length} LP profiles{fundDNA ? " + Fund DNA" : ""}{strategy ? " + Strategy" : ""}{opportunities.length ? " + Opportunities" : ""}</small></p><button aria-label="Close chat" onClick={close}><X /></button></div><div className="chat-body">{messages.length ? <div className="messages">{messages.map((m, i) => <div className={m.role} key={i}>{m.role === "ai" ? <div className="markdown-answer">{renderMarkdownAnswer(m.text)}</div> : <span>{m.text}</span>}{m.role === "ai" && <small><FileText />Source: {m.source || "OpenAI + live workspace context"}</small>}</div>)}</div> : <><div className="chat-intro"><BrainCircuit /><h2>Ask who to target, avoid, access, and convert.</h2><p>Answers use Fund DNA, LP personas, fit scores, fundraising strategy, LP opportunities, discovery signals, relationship intelligence, and learning data.</p></div><div className="suggestions">{prompts.map((x) => <button key={x} onClick={() => ask(x)} disabled={busy}>{x}<ArrowRight /></button>)}</div></>}</div><form onSubmit={(e) => { e.preventDefault(); if (q.trim() && !busy) ask(q); }}><input value={q} onChange={(e) => setQ(e.target.value)} placeholder={busy ? "Asking LP Brain..." : "Ask who to target, avoid, access, or convert..."} /><button aria-label="Send question" disabled={busy}><Send /></button></form></aside>;
 }
 
 
