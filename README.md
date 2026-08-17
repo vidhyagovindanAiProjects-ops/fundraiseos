@@ -1,73 +1,56 @@
-# FundraiseOS
+# LP Brain
 
-AI-native relationship intelligence for emerging fund managers. Remember every LP conversation. Never miss the next best action.
+AI Fundraising Chief of Staff and Relationship Intelligence Platform for Emerging Venture Fund Managers.
 
-## MVP
+## Current workflows
 
-- Passwordless email authentication with Supabase Auth (plus local demo fallback)
-- PDF, DOCX, and TXT upload flow with structured extraction response
-- Automatically generated LP profiles and 75-record demo seed
-- Fundraising memory chat with source citations and OpenAI fallback
-- Interactive LP → Introducer → Event → Meeting → Action relationship graph
-- Dataset-derived fundraising health, commitments, follow-ups, and next actions
-- Responsive desktop and mobile dashboard
+- Meeting-note extraction: upload or paste notes, review/edit structured JSON, then approve into memory.
+- Fund DNA: paste fund materials, extract a structured fund profile, and approve it.
+- LP Matching Intelligence: every LP and LP category is ranked against the approved Fund DNA.
+- LP DNA: structured known / inferred / unknown allocator intelligence with evidence.
+- Relationship Paths: manually verified direct, first-degree, second-degree, weak inferred, or no-known-path routes.
+- Recommendation Feedback and Outcome Events: accepted/rejected/saved signals and historical LP journey stages.
+- Ideal LP Personas: target and avoid categories with reasoning.
+- Relationship Intelligence: warm introduction paths, community/event suggestions, and outreach strategy.
+- Weekly Action Plan: focused actions to identify, access, and convert high-probability LPs.
+- Ask LP Brain: grounded answers across Fund DNA, LP personas, fit scores, discovery, relationship paths, objections, and outreach drafts.
+- Live MVP Workflow: fund setup, LP records, relationship timelines, meeting prep, meeting intelligence, and This Week priorities using one live workspace dataset.
 
-Deliberately excluded: Gmail, Outlook, calendar sync, CRM integrations, automated outreach, and Affinity replacement.
+## Environment variables
 
-## Local setup
+The demo works without keys. Real AI extraction requires:
 
-1. Install dependencies:
-
-   ```bash
-   pnpm install
-   ```
-
-2. Copy `.env.example` to `.env.local`. The app runs without keys in demo mode. To enable live services, set:
-
-   ```env
-   NEXT_PUBLIC_SUPABASE_URL=
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=
-   SUPABASE_SERVICE_ROLE_KEY=
-   OPENAI_API_KEY=
-   ```
-
-3. Start the app:
-
-   ```bash
-   pnpm dev
-   ```
-
-4. Open [http://localhost:3000](http://localhost:3000). The passwordless auth screen is at `/login`.
-
-## Supabase database
-
-The migration in `supabase/migrations/001_fundraiseos.sql` enables pgvector, row-level security, tenant-owned LP profiles, documents, memories, action items, and semantic memory search.
-
-To create the local database and automatically load 75 realistic LP profiles:
-
-```bash
-supabase start
-supabase db reset
+```env
+OPENAI_API_KEY=
+OPENAI_EXTRACTION_MODEL=gpt-4o-mini
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-`supabase/seed.sql` creates fifteen Family Offices, fifteen Funds of Funds, fifteen RIAs, fifteen Angel Investors, and fifteen Foundations, including introductions, events, meetings, interests, concerns, follow-up dates, and commitments.
+If `OPENAI_API_KEY` is missing, live AI routes show a clear setup error and do not pretend analysis succeeded. Demo samples remain clearly labeled inside Demo Workspace.
 
-## ZAS Ventures demo path
+## Demo path
 
-1. Open `/login` and enter any email to use local demo authentication.
-2. From Overview, open Elena Park to show relationship strength, meeting history, and next best action.
-3. Click **Upload meeting note** → **Use prepared Nora Ellis meeting note**.
-4. Extract the meeting and open the generated Nora Ellis profile.
-5. Open Relationship Graph to show Nora → Maya Feldman → ZAS Founder Dinner → Introductory meeting → Send track record.
-6. Ask Memory: “What happened after the upload?”
-7. Click **Reset demo** to restore the exact 75-LP starting state.
+1. Open the homepage.
+2. Confirm the hero says: **Your AI Fundraising Chief of Staff.**
+3. Open **Upload fund materials**.
+4. Use the sample LP discovery package or paste fund deck / GP bio / thesis text.
+5. Review Fund DNA, ideal LP profile, and recommended next actions.
+6. Review **Ideal LP Personas**, **LP Matching Intelligence**, and the **Live MVP Workflow** on the homepage.
+7. Open **Discover Investors** and review high-probability LP opportunities.
+8. Open Ask LP Brain and try:
+   - Who should I fundraise from?
+   - Which LP categories have the highest probability?
+   - Which LP categories should I avoid?
+   - What is my most efficient fundraising path?
+   - What should the GP do this week?
+9. Open **Upload meeting note**.
+10. Use the sample Nora Ellis meeting note.
+11. Review/edit JSON and approve the relationship update.
 
-This path demonstrates: upload → extraction → LP profile → graph update → grounded AI answer.
-
-## Verification
+## Build
 
 ```bash
 pnpm build
 ```
-
-Demo mode keeps all product interactions available without transmitting data. Production auth and RLS require valid Supabase credentials; production AI answers require an OpenAI key.
