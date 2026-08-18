@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { normalizeFundDNA, normalizeMeetingExtraction } from "../lib/ai-schemas.ts";
 import { createMeetingBrief, explainLPOpportunity, normalizeLPDNA, lpFromCsv, parseCsvRows, prioritizeThisWeek } from "../lib/live-workspace.ts";
 import { groundedSystemPrompt, groundedWorkspaceAnswer, groundingPreflight } from "../lib/chat-grounding.ts";
+import { buildAuthenticatedWorkspaceContext, onlyRowsOwnedBy, requiresServerWorkspaceContext, shouldAllowLocalWorkspaceFallback } from "../lib/workspace-security.ts";
 
 test("normalizes structured Fund DNA with confidence labels and evidence", () => {
   const dna = normalizeFundDNA({
@@ -476,4 +477,57 @@ test("Ask LP Brain markdown headings render through isolated chat component", ()
   assert.match(source, /type: "heading"/);
   assert.match(source, /<h3/);
   assert.match(source, /trimmed\.startsWith\("## "\)/);
+});
+
+test("My Fund Ask LP Brain requires server-side workspace context", () => {
+  assert.equal(requiresServerWorkspaceContext("live"), true);
+  assert.equal(requiresServerWorkspaceContext("demo"), false);
+  const route = readFileSync(new URL("../app/api/chat/route.ts", import.meta.url), "utf8");
+  assert.match(route, /requiresServerWorkspaceContext\(mode\)/);
+  assert.match(route, /loadLiveWorkspaceMemory\(request\)/);
+});
+
+test("workspace isolation filters rows by authenticated owner", () => {
+  const rows = [
+    { id: "a", owner_id: "user-a", workspace_id: "workspace-a", name: "User A LP" },
+    { id: "b", owner_id: "user-b", workspace_id: "workspace-b", name: "User B LP" },
+  ];
+  assert.deepEqual(onlyRowsOwnedBy(rows, "user-a").map((row) => row.name), ["User A LP"]);
+});
+
+test("authenticated workspace context excludes another user's LP records", () => {
+  const context = buildAuthenticatedWorkspaceContext({
+    ownerId: "user-a",
+    workspace: { id: "workspace-a", owner_id: "user-a", mode: "live", name: "My Fund Workspace" },
+    lpRows: [
+      { id: "lp-a", owner_id: "user-a", workspace_id: "workspace-a", name: "Avery LP", organization: "A Office", lp_type: "Family Office", current_stage: "Diligence", notes: "Commitment: $1M verbal indication" },
+      { id: "lp-b", owner_id: "user-b", workspace_id: "workspace-b", name: "Blake LP", organization: "B Office", lp_type: "Family Office", current_stage: "Diligence", notes: "Commitment: $5M committed" },
+    ],
+    timelineRows: [
+      { id: "tl-a", owner_id: "user-a", workspace_id: "workspace-a", lp_id: "lp-a", entry_date: "2026-08-18", summary: "A meeting", supporting_text: "A notes" },
+      { id: "tl-b", owner_id: "user-b", workspace_id: "workspace-b", lp_id: "lp-b", entry_date: "2026-08-18", summary: "B meeting", supporting_text: "B notes" },
+    ],
+  });
+  assert.equal(context.lpProfiles.length, 1);
+  assert.equal(context.lpProfiles[0].name, "Avery LP");
+  assert.equal(JSON.stringify(context).includes("Blake LP"), false);
+});
+
+test("demo data cannot leak into authenticated My Fund workspace context", () => {
+  const context = buildAuthenticatedWorkspaceContext({
+    ownerId: "user-a",
+    workspace: { id: "workspace-a", owner_id: "user-a", mode: "live", name: "My Fund Workspace" },
+    fundRecord: { owner_id: "user-a", workspace_id: "workspace-a", generated_output: { fundName: "User A Fund" }, original_inputs: {} },
+    lpRows: [],
+  });
+  assert.equal(JSON.stringify(context).includes("Elena Park"), false);
+  assert.equal(JSON.stringify(context).includes("Northstar Family Office"), false);
+});
+
+test("signed-in My Fund persistence failure cannot silently use local fallback", () => {
+  assert.equal(shouldAllowLocalWorkspaceFallback(true, true), false);
+  assert.equal(shouldAllowLocalWorkspaceFallback(true, false), false);
+  assert.equal(shouldAllowLocalWorkspaceFallback(false, false), true);
+  const source = readFileSync(new URL("../components/demo-mode.tsx", import.meta.url), "utf8");
+  assert.match(source, /Nothing was persisted locally as a success/);
 });

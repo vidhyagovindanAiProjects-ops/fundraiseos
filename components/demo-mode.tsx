@@ -6,6 +6,7 @@ import { activities as seedActivity, demoLPs, type Heat, type LP, type LPType } 
 import { normalizeFundDNA, normalizeMeetingExtraction, type FundDNARecord, type MeetingExtractionRecord } from "@/lib/ai-schemas";
 import { createClient } from "@/lib/supabase/client";
 import { createMeetingBrief, emptyLPDNA, explainLPOpportunity, lpFromCsv, normalizeLPDNA, parseCsvRows, prioritizeThisWeek, timelineEntryFromMeeting, uid, type LPOutcomeEvent, type LiveLPRecord, type LiveTimelineEntry, type RecommendationFeedback, type RecommendationFeedbackValue, type RejectionReason, type RelationshipPath, type RelationshipPathType } from "@/lib/live-workspace";
+import { shouldAllowLocalWorkspaceFallback } from "@/lib/workspace-security";
 import { LPChatMessage } from "./lp-chat-message";
 
 type Screen = "Home" | "LP Pipeline" | "Meetings" | "Knowledge" | "Discover Investors" | "Integrations" | "Settings" | "Fund DNA" | "Fundraising Strategy" | "LP Opportunities" | "LP Directory" | "Follow-ups" | "Relationship Graph";
@@ -1424,30 +1425,59 @@ function LiveMvpWorkflow() {
   const explanation = selected ? explainLPOpportunity(selected, state.fundDNA, selectedPaths) : null;
 
   async function persist(next: LiveState) {
-    localStorage.setItem(LIVE_KEY, JSON.stringify(next));
+    if (next.persistence !== "supabase") {
+      localStorage.setItem(LIVE_KEY, JSON.stringify(next));
+      return;
+    }
     const supabase = createClient();
-    if (!supabase || next.persistence !== "supabase") return;
+    if (!supabase) throw new Error("Supabase is not configured. My Fund Workspace was not persisted.");
     const { data: userData } = await supabase.auth.getUser();
     const ownerId = userData.user?.id;
-    if (!ownerId) return;
-    await supabase.from("workspaces").upsert({ id: next.workspaceId, owner_id: ownerId, name: "My Fund Workspace", mode: "live", updated_at: new Date().toISOString() });
-    if (next.fundDNA) await supabase.from("fund_dna_records").upsert({ id: next.workspaceId, workspace_id: next.workspaceId, owner_id: ownerId, original_inputs: next.fundInputs, generated_output: next.fundDNA, status: "approved", output_status: "approved", approved_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-    if (next.lps.length) await supabase.from("live_lp_records").upsert(next.lps.map((lp) => lpToDb(lp, ownerId)));
-    if (next.paths.length) await supabase.from("relationship_paths").upsert(next.paths.map((path) => pathToDb(path, ownerId)));
-    if (next.timeline.length) await supabase.from("relationship_timeline_entries").upsert(next.timeline.map((entry) => ({ id: entry.id, workspace_id: entry.workspaceId, owner_id: ownerId, lp_id: entry.lpId, entry_type: entry.type, entry_date: entry.date, source: entry.source, summary: entry.summary, supporting_text: entry.supportingText, created_by: entry.createdBy, updated_at: entry.updatedAt })));
+    if (!ownerId) throw new Error("Sign in before saving My Fund Workspace. Nothing was persisted.");
+    const workspaceResult = await supabase.from("workspaces").upsert({ id: next.workspaceId, owner_id: ownerId, name: "My Fund Workspace", mode: "live", updated_at: new Date().toISOString() });
+    if (workspaceResult.error) throw new Error("Could not save workspace to Supabase. Nothing was persisted locally as a success.");
+    if (next.fundDNA) {
+      const fundResult = await supabase.from("fund_dna_records").upsert({ id: next.workspaceId, workspace_id: next.workspaceId, owner_id: ownerId, original_inputs: next.fundInputs, generated_output: next.fundDNA, status: "approved", output_status: "approved", approved_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      if (fundResult.error) throw new Error("Could not save Fund DNA to Supabase. Nothing was persisted locally as a success.");
+    }
+    if (next.lps.length) {
+      const lpResult = await supabase.from("live_lp_records").upsert(next.lps.map((lp) => lpToDb(lp, ownerId)));
+      if (lpResult.error) throw new Error("Could not save LP records to Supabase. Nothing was persisted locally as a success.");
+    }
+    if (next.paths.length) {
+      const pathResult = await supabase.from("relationship_paths").upsert(next.paths.map((path) => pathToDb(path, ownerId)));
+      if (pathResult.error) throw new Error("Could not save relationship paths to Supabase. Nothing was persisted locally as a success.");
+    }
+    if (next.timeline.length) {
+      const timelineResult = await supabase.from("relationship_timeline_entries").upsert(next.timeline.map((entry) => ({ id: entry.id, workspace_id: entry.workspaceId, owner_id: ownerId, lp_id: entry.lpId, entry_type: entry.type, entry_date: entry.date, source: entry.source, summary: entry.summary, supporting_text: entry.supportingText, created_by: entry.createdBy, updated_at: entry.updatedAt })));
+      if (timelineResult.error) throw new Error("Could not save relationship timeline to Supabase. Nothing was persisted locally as a success.");
+    }
     const recommendationRows = next.lps.map((lp) => {
       const exp = explainLPOpportunity(lp, next.fundDNA, next.paths.filter((path) => path.lpId === lp.id));
       return { id: `00000000-0000-4000-8000-${lp.id.replace(/-/g, "").slice(0, 12)}`, workspace_id: next.workspaceId, owner_id: ownerId, lp_id: lp.id, recommendation_label: `Review ${lp.name}`, potential_fit: exp.potentialFit, why: exp.why, evidence: exp.evidence, information_gaps: exp.informationGaps, status: "suggested", updated_at: new Date().toISOString() };
     });
-    if (recommendationRows.length) await supabase.from("lp_recommendations").upsert(recommendationRows);
-    if (next.feedback.length) await supabase.from("recommendation_feedback").upsert(next.feedback.map((item) => ({ id: item.id, workspace_id: item.workspaceId, owner_id: ownerId, recommendation_id: item.recommendationId, lp_id: item.lpId, feedback: item.feedback, rejection_reason: item.rejectionReason || null, notes: item.notes, created_at: item.createdAt })));
-    if (next.outcomes.length) await supabase.from("lp_outcome_events").upsert(next.outcomes.map((item) => ({ id: item.id, workspace_id: item.workspaceId, owner_id: ownerId, lp_id: item.lpId, recommendation_id: item.recommendationId || null, outcome_stage: item.outcomeStage, notes: item.notes, occurred_at: item.occurredAt, created_at: item.createdAt })));
+    if (recommendationRows.length) {
+      const recommendationResult = await supabase.from("lp_recommendations").upsert(recommendationRows);
+      if (recommendationResult.error) throw new Error("Could not save LP recommendations to Supabase. Nothing was persisted locally as a success.");
+    }
+    if (next.feedback.length) {
+      const feedbackResult = await supabase.from("recommendation_feedback").upsert(next.feedback.map((item) => ({ id: item.id, workspace_id: item.workspaceId, owner_id: ownerId, recommendation_id: item.recommendationId, lp_id: item.lpId, feedback: item.feedback, rejection_reason: item.rejectionReason || null, notes: item.notes, created_at: item.createdAt })));
+      if (feedbackResult.error) throw new Error("Could not save recommendation feedback to Supabase. Nothing was persisted locally as a success.");
+    }
+    if (next.outcomes.length) {
+      const outcomeResult = await supabase.from("lp_outcome_events").upsert(next.outcomes.map((item) => ({ id: item.id, workspace_id: item.workspaceId, owner_id: ownerId, lp_id: item.lpId, recommendation_id: item.recommendationId || null, outcome_stage: item.outcomeStage, notes: item.notes, occurred_at: item.occurredAt, created_at: item.createdAt })));
+      if (outcomeResult.error) throw new Error("Could not save outcome events to Supabase. Nothing was persisted locally as a success.");
+    }
   }
 
   function commit(updater: (current: LiveState) => LiveState) {
     setState((current) => {
       const next = normalizeLiveState(updater(current));
-      void persist(next);
+      void persist(next).then(() => {
+        setError("");
+      }).catch((error) => {
+        setError(error instanceof Error ? error.message : "Supabase persistence failed. Your change is visible in this session but was not saved.");
+      });
       return next;
     });
   }
@@ -1464,13 +1494,20 @@ function LiveMvpWorkflow() {
         if (!supabase) return fallback();
         const { data: userData } = await supabase.auth.getUser();
         const ownerId = userData.user?.id;
-        if (!ownerId) return fallback();
+        if (!ownerId) {
+          if (shouldAllowLocalWorkspaceFallback(true, false)) return fallback();
+          if (!cancelled) setError("Sign in to load or save My Fund Workspace. Private workspace data was not loaded from local storage.");
+          return;
+        }
         let { data: workspace } = await supabase.from("workspaces").select("*").eq("owner_id", ownerId).eq("mode", "live").order("created_at", { ascending: true }).limit(1).maybeSingle();
         if (!workspace) {
           const created = await supabase.from("workspaces").insert({ owner_id: ownerId, name: "My Fund Workspace", mode: "live" }).select("*").single();
           workspace = created.data;
         }
-        if (!workspace) return fallback();
+        if (!workspace) {
+          if (!cancelled) setError("Could not create or load My Fund Workspace from Supabase. Private workspace data was not loaded from local storage.");
+          return;
+        }
         const workspaceId = workspace.id as string;
         const [fund, lps, timeline, paths, feedback, outcomes] = await Promise.all([
           supabase.from("fund_dna_records").select("*").eq("workspace_id", workspaceId).order("updated_at", { ascending: false }).limit(1).maybeSingle(),
@@ -1493,8 +1530,7 @@ function LiveMvpWorkflow() {
           outcomes: (outcomes.data || []).map((row: Record<string, any>) => ({ id: row.id, workspaceId: row.workspace_id, lpId: row.lp_id, recommendationId: row.recommendation_id || undefined, outcomeStage: row.outcome_stage, notes: row.notes || "", occurredAt: row.occurred_at, createdAt: row.created_at })),
         }));
       } catch {
-        setError("Supabase live persistence is unavailable. Using local fallback; demo data remains separate.");
-        fallback();
+        setError("Supabase live persistence is unavailable. Private My Fund Workspace data was not loaded from local fallback.");
       }
     }
     void load();
