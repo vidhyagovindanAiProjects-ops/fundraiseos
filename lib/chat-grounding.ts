@@ -94,9 +94,10 @@ function positiveCommitmentAmount(value: unknown) {
 function commitmentEvidenceParts(profile: Record<string, unknown>) {
   const commitment = isMeaningfulFact(profile.commitment) && !isNoCommitmentText(profile.commitment) ? formatMoneyInText(String(profile.commitment).trim()) : "";
   const amount = positiveCommitmentAmount(profile.commitmentAmount);
+  const amountEvidence = amount && !hasOverlappingMoneyEvidence(commitment, amount) ? amount : "";
   const status = String(profile.status || "").trim();
   const statusEvidence = /committed|verbal indication|soft indication|soft circle|diligence/i.test(status) && !isNoCommitmentText(status) ? `Status: ${status}` : "";
-  return [commitment, amount, statusEvidence].filter(Boolean);
+  return [commitment, amountEvidence, statusEvidence].filter(Boolean);
 }
 
 function hasCommitmentEvidence(profile: Record<string, unknown>) {
@@ -128,13 +129,24 @@ function extractMoneyAmounts(text: string) {
 }
 
 function formatMoney(amount: number) {
-  if (amount >= 1000000 && amount % 1000000 === 0) return `$${amount / 1000000}M`;
+  if (amount >= 1000000) {
+    const millions = amount / 1000000;
+    const display = Number.isInteger(millions) ? String(millions) : millions.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+    return `$${display}M`;
+  }
   if (amount >= 1000 && amount % 1000 === 0) return `$${amount / 1000}K`;
   return `$${amount.toLocaleString("en-US")}`;
 }
 
 function formatMoneyInText(text: string) {
   return text.replace(/\b([1-9]\d{5,})\b/g, (match) => formatMoney(Number(match)));
+}
+
+function hasOverlappingMoneyEvidence(existingEvidence: string, candidateEvidence: string) {
+  if (!existingEvidence || !candidateEvidence) return false;
+  const existingAmounts = extractMoneyAmounts(existingEvidence);
+  const candidateAmounts = extractMoneyAmounts(candidateEvidence);
+  return candidateAmounts.some((amount) => existingAmounts.includes(amount));
 }
 
 function hasMeetingEvidence(profile: Record<string, unknown>) {

@@ -343,15 +343,41 @@ test("Ask LP Brain compound routing does not drop later supported intents", () =
 test("Ask LP Brain formats raw money values in deterministic answers", () => {
   const result = groundedWorkspaceAnswer("Which LPs are closest to committing, based only on evidence in my workspace?", {
     lpProfiles: [
-      { name: "Nora Ellis", organization: "Blue River Office", commitmentAmount: 1000000, status: "Committed" },
-      { name: "Maya Chen", organization: "River Family Office", commitmentAmount: 250000, status: "Soft circle" },
+      { name: "Nora Ellis", organization: "Blue River Office", commitmentAmount: 1250000, status: "Committed" },
+      { name: "Maya Chen", organization: "River Family Office", commitmentAmount: 1500000, status: "Soft circle" },
+      { name: "Omar Singh", organization: "Hillcrest Foundation", commitmentAmount: 1000000, status: "Committed" },
+      { name: "Priya Rao", organization: "Cedar Ridge Office", commitmentAmount: 750000, status: "Soft circle" },
+      { name: "Sam Rivera", organization: "Harbor Angels", commitmentAmount: 250000, status: "Verbal indication" },
     ],
   });
   assert.ok(result);
+  assert.match(result.answer, /\$1\.25M/);
+  assert.match(result.answer, /\$1\.5M/);
   assert.match(result.answer, /\$1M/);
+  assert.match(result.answer, /\$750K/);
   assert.match(result.answer, /\$250K/);
+  assert.doesNotMatch(result.answer, /\$1250K/);
+  assert.doesNotMatch(result.answer, /\$1500K/);
+  assert.doesNotMatch(result.answer, /\$1000K/);
+  assert.doesNotMatch(result.answer, /\b1250000\b/);
+  assert.doesNotMatch(result.answer, /\b1500000\b/);
   assert.doesNotMatch(result.answer, /\b1000000\b/);
+  assert.doesNotMatch(result.answer, /\b750000\b/);
   assert.doesNotMatch(result.answer, /\b250000\b/);
+});
+
+test("Ask LP Brain formats $125K and avoids duplicate commitment amounts", () => {
+  const result = groundedWorkspaceAnswer("Which LPs are closest to committing, based only on evidence in my workspace?", {
+    lpProfiles: [
+      { name: "Nora Ellis", organization: "Blue River Office", commitment: "$1M verbal indication - diligence pending", commitmentAmount: 1000000 },
+      { name: "Maya Chen", organization: "River Family Office", commitmentAmount: 125000, status: "Soft circle" },
+    ],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /Evidence: \$1M verbal indication - diligence pending\./);
+  assert.match(result.answer, /\$125K/);
+  assert.doesNotMatch(result.answer, /\$1M verbal indication - diligence pending; \$1M/);
+  assert.doesNotMatch(result.answer, /\b125000\b/);
 });
 
 test("Ask LP Brain same LP in multiple sections does not leak facts to another LP", () => {
