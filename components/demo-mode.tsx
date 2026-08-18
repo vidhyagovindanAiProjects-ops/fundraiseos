@@ -6,6 +6,7 @@ import { activities as seedActivity, demoLPs, type Heat, type LP, type LPType } 
 import { normalizeFundDNA, normalizeMeetingExtraction, type FundDNARecord, type MeetingExtractionRecord } from "@/lib/ai-schemas";
 import { createClient } from "@/lib/supabase/client";
 import { createMeetingBrief, emptyLPDNA, explainLPOpportunity, lpFromCsv, normalizeLPDNA, parseCsvRows, prioritizeThisWeek, timelineEntryFromMeeting, uid, type LPOutcomeEvent, type LiveLPRecord, type LiveTimelineEntry, type RecommendationFeedback, type RecommendationFeedbackValue, type RejectionReason, type RelationshipPath, type RelationshipPathType } from "@/lib/live-workspace";
+import { LPChatMessage } from "./lp-chat-message";
 
 type Screen = "Home" | "LP Pipeline" | "Meetings" | "Knowledge" | "Discover Investors" | "Integrations" | "Settings" | "Fund DNA" | "Fundraising Strategy" | "LP Opportunities" | "LP Directory" | "Follow-ups" | "Relationship Graph";
 type Task = { id: string; lpId: string; title: string; due: string; done: boolean };
@@ -1923,91 +1924,6 @@ function Profile({ lp, fit, signal, timeline, artifacts, close, openChat, edit }
   return <div className="drawer-bg" onClick={close}><aside className="profile wide" onClick={(e) => e.stopPropagation()}><header><span>LP PROFILE • RELATIONSHIP INTELLIGENCE</span><button aria-label="Close profile" onClick={close}><X /></button></header><section className="profile-hero"><span className="avatar big" style={{ background: lp.color }}>{lp.initials}</span><h2>{lp.name}</h2><p>{lp.firm} • {lp.type}</p><Status value={lp.status} /><div className="strength"><i><em style={{ width: `${fit?.score || lp.strength}%` }} /></i><span>{fit ? `${fit.score}% LP fit` : `${lp.strength}% relationship strength`}</span></div></section><div className="profile-stats"><p><small>Potential commitment</small><b>{lp.commitmentAmount ? money(lp.commitmentAmount) : "—"}</b></p><p><small>Last contact</small><b>{lp.last}</b></p></div>{lp.event === "Manual Provider" && <section className="profile-section provider-disclosure"><b>Manual Provider</b><span>Manual Workspace Data</span><p>This LP profile was created or edited manually and is available to provider search.</p></section>}{signal && <section className="profile-section autonomous-profile"><h3>Fundraising signal</h3><div className="signal-pill"><b>{signal.label}</b><span>{signal.confidence}% confidence</span></div><p>{signal.reason}</p></section>}<section className="profile-section autonomous-profile"><h3>Relationship intelligence outputs</h3><dl><div><dt>Meeting summary</dt><dd>{artifacts.summary}</dd></div><div><dt>Follow-up email draft</dt><dd><pre>{artifacts.email}</pre></dd></div><div><dt>Relationship notes</dt><dd>{artifacts.crm}</dd></div><div><dt>Next meeting recommendation</dt><dd>{artifacts.nextMeeting}</dd></div><div><dt>Objections detected</dt><dd>{artifacts.objections.join(" | ")}</dd></div><div><dt>Commitment signals</dt><dd>{artifacts.commitmentSignals.join(" | ")}</dd></div><div><dt>Suggested documents</dt><dd>{artifacts.documents.join(", ")}</dd></div></dl></section>{fit && <section className="profile-section"><h3>LP Fit Intelligence</h3><dl><div><dt>Why this LP fits</dt><dd>{fit.why}</dd></div><div><dt>Likely objection</dt><dd>{fit.likelyObjection}</dd></div><div><dt>Outreach angle</dt><dd>{fit.outreachAngle}</dd></div><div><dt>Next best action</dt><dd>{fit.nextBestAction}</dd></div></dl></section>}<section className="profile-section"><h3>Relationship intelligence</h3><dl><div><dt>Introduced by</dt><dd>{lp.source}<small>{lp.event}</small></dd></div><div><dt>Investment interests</dt><dd>{lp.interest}</dd></div><div><dt>Key concern</dt><dd>{lp.concern}</dd></div><div><dt>Next best action</dt><dd>{lp.next}<small>{lp.due}</small></dd></div></dl></section><section className="profile-section ai-event-timeline"><h3>AI Event Timeline</h3>{timeline.map((event, i) => <div key={`${event.kind}-${event.title}-${i}`}><i>{i + 1}</i><p><b>{event.kind}: {event.title}</b><small>{event.date}</small><span>{event.detail}</span></p></div>)}</section><section className="profile-section meeting-history"><h3>Meeting history</h3>{lp.meetings.map((m) => <div key={`${m.date}-${m.title}`}><i /><p><b>{m.title}</b><small>{m.date}</small><span>{m.note}</span></p></div>)}</section><button className="profile-ask" onClick={edit}><FileText />Edit manually</button><button className="profile-ask" onClick={openChat}><Sparkles />Ask LP Brain about {lp.name.split(" ")[0]}</button></aside></div>;
 }
 
-function trimMarkdownLine(line: string) {
-  let start = 0;
-  let end = line.length;
-  while (start < end && line[start] === " ") start += 1;
-  while (end > start && line[end - 1] === " ") end -= 1;
-  return line.slice(start, end);
-}
-
-function orderedListText(line: string) {
-  let index = 0;
-  while (index < line.length && line[index] >= "0" && line[index] <= "9") index += 1;
-  if (index === 0 || line[index] !== "." || line[index + 1] !== " ") return null;
-  return line.slice(index + 2);
-}
-
-function MarkdownInline({ text }: { text: string }) {
-  const nodes: React.ReactNode[] = [];
-  let cursor = 0;
-  let key = 0;
-  while (cursor < text.length) {
-    const start = text.indexOf("**", cursor);
-    if (start === -1) {
-      nodes.push(text.slice(cursor));
-      break;
-    }
-    const end = text.indexOf("**", start + 2);
-    if (end === -1) {
-      nodes.push(text.slice(cursor));
-      break;
-    }
-    if (start > cursor) nodes.push(text.slice(cursor, start));
-    nodes.push(<strong key={key}>{text.slice(start + 2, end)}</strong>);
-    key += 1;
-    cursor = end + 2;
-  }
-  return <>{nodes}</>;
-}
-
-function MarkdownContent({ text }: { text: string }) {
-  const lines = text.replaceAll("\r\n", "\n").trim().split("\n");
-  const blocks: React.ReactNode[] = [];
-  let listType: "ul" | "ol" | null = null;
-  let listItems: string[] = [];
-  let paragraph: string[] = [];
-
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    const value = paragraph.join(" ").trim();
-    if (value) blocks.push(<p key={`p-${blocks.length}`}><MarkdownInline text={value} /></p>);
-    paragraph = [];
-  };
-  const flushList = () => {
-    if (!listType || !listItems.length) return;
-    const Tag = listType;
-    blocks.push(<Tag key={`list-${blocks.length}`}>{listItems.map((item, index) => <li key={index}><MarkdownInline text={item} /></li>)}</Tag>);
-    listType = null;
-    listItems = [];
-  };
-
-  lines.forEach((line) => {
-    const trimmed = trimMarkdownLine(line);
-    const ordered = orderedListText(trimmed);
-    const bullet = (trimmed[0] === "-" || trimmed[0] === "*") && trimmed[1] === " " ? trimmed.slice(2) : null;
-    if (!trimmed) {
-      flushParagraph();
-      flushList();
-      return;
-    }
-    if (bullet !== null || ordered !== null) {
-      flushParagraph();
-      const nextType = bullet !== null ? "ul" : "ol";
-      if (listType && listType !== nextType) flushList();
-      listType = nextType;
-      listItems.push(trimMarkdownLine(bullet ?? ordered ?? ""));
-      return;
-    }
-    flushList();
-    paragraph.push(trimmed);
-  });
-  flushParagraph();
-  flushList();
-
-  return <div className="markdown-answer">{blocks.length ? blocks : <p><MarkdownInline text={text} /></p>}</div>;
-}
-
 function Chat({ profiles, tasks, fundDNA, strategy, opportunities, outcomes, fitResults, outcomeIntel, integrations, discovery, providers, close }: { profiles: LP[]; tasks: Task[]; fundDNA: FundDNA | null; strategy: FundraisingStrategy | null; opportunities: LPOpportunity[]; outcomes: Record<string, OpportunityOutcome>; fitResults: Record<string, LPFit>; outcomeIntel: FundraisingOutcomeIntelligence; integrations: IntegrationState; discovery: ReturnType<typeof discoverInvestors>; providers: InvestorProvider[]; close: () => void }) {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
@@ -2048,7 +1964,7 @@ function Chat({ profiles, tasks, fundDNA, strategy, opportunities, outcomes, fit
       setBusy(false);
     }
   }
-  return <aside className="chat"><div className="chat-head"><span><Sparkles /></span><p><b>LP matchmaker and strategist</b><small>• Grounded in {profiles.length} LP profiles{fundDNA ? " + Fund DNA" : ""}{strategy ? " + Strategy" : ""}{opportunities.length ? " + Opportunities" : ""}</small></p><button aria-label="Close chat" onClick={close}><X /></button></div><div className="chat-body">{messages.length ? <div className="messages">{messages.map((m, i) => <div className={`message-row ${m.role === "user" ? "user-row" : "assistant-row"}`} key={i}><div className={`message-bubble ${m.role === "user" ? "user-bubble" : "assistant-bubble"}`}>{m.role === "ai" ? <MarkdownContent text={m.text} /> : <span>{m.text}</span>}{m.role === "ai" && <small><FileText />Source: {m.source || "OpenAI + live workspace context"}</small>}</div></div>)}</div> : <><div className="chat-intro"><BrainCircuit /><h2>Ask who to target, avoid, access, and convert.</h2><p>Answers use Fund DNA, LP personas, fit scores, fundraising strategy, LP opportunities, discovery signals, relationship intelligence, and learning data.</p></div><div className="suggestions">{prompts.map((x) => <button key={x} onClick={() => ask(x)} disabled={busy}>{x}<ArrowRight /></button>)}</div></>}</div><form onSubmit={(e) => { e.preventDefault(); if (q.trim() && !busy) ask(q); }}><input value={q} onChange={(e) => setQ(e.target.value)} placeholder={busy ? "Asking LP Brain..." : "Ask who to target, avoid, access, or convert..."} /><button aria-label="Send question" disabled={busy}><Send /></button></form></aside>;
+  return <aside className="chat"><div className="chat-head"><span><Sparkles /></span><p><b>LP matchmaker and strategist</b><small>• Grounded in {profiles.length} LP profiles{fundDNA ? " + Fund DNA" : ""}{strategy ? " + Strategy" : ""}{opportunities.length ? " + Opportunities" : ""}</small></p><button aria-label="Close chat" onClick={close}><X /></button></div><div className="chat-body">{messages.length ? <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>{messages.map((m, i) => <LPChatMessage key={i} role={m.role === "user" ? "user" : "assistant"} content={m.text} />)}</div> : <><div className="chat-intro"><BrainCircuit /><h2>Ask who to target, avoid, access, and convert.</h2><p>Answers use Fund DNA, LP personas, fit scores, fundraising strategy, LP opportunities, discovery signals, relationship intelligence, and learning data.</p></div><div className="suggestions">{prompts.map((x) => <button key={x} onClick={() => ask(x)} disabled={busy}>{x}<ArrowRight /></button>)}</div></>}</div><form onSubmit={(e) => { e.preventDefault(); if (q.trim() && !busy) ask(q); }}><input value={q} onChange={(e) => setQ(e.target.value)} placeholder={busy ? "Asking LP Brain..." : "Ask who to target, avoid, access, or convert..."} /><button aria-label="Send question" disabled={busy}><Send /></button></form></aside>;
 }
 
 

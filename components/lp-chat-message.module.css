@@ -1,0 +1,84 @@
+.lpbChatMessageRow {
+  width: 100%;
+  min-width: 0;
+  flex-shrink: 0;
+  display: flex;
+  position: static;
+}
+
+.lpbChatUserRow {
+  justify-content: flex-end;
+}
+
+.lpbChatAssistantRow {
+  justify-content: flex-start;
+}
+
+.lpbChatUserCard,
+.lpbChatAssistantCard {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 11px 13px;
+  border-radius: 10px;
+  font-size: 10px;
+  line-height: 1.55;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  writing-mode: horizontal-tb;
+  position: static;
+}
+
+.lpbChatUserCard {
+  display: block;
+  width: auto;
+  max-width: 78%;
+  flex: 0 1 auto;
+  background: #2c3856;
+  color: #fff;
+  text-align: left;
+}
+
+.lpbChatAssistantCard {
+  width: auto;
+  max-width: 92%;
+  background: #fff;
+  border: 1px solid #e6e6e2;
+}
+
+.lpbChatMarkdown {
+  display: block;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.lpbChatMarkdown p {
+  margin: 0 0 8px;
+}
+
+.lpbChatMarkdown p:last-child {
+  margin-bottom: 0;
+}
+
+.lpbChatMarkdown strong {
+  font-weight: 700;
+  color: #25314f;
+}
+
+.lpbChatMarkdown ul,
+.lpbChatMarkdown ol {
+  margin: 0 0 8px 16px;
+  padding: 0;
+  white-space: normal;
+}
+
+.lpbChatMarkdown li {
+  margin: 3px 0;
+  padding-left: 2px;
+}
+
+.lpbChatMarkdown ul:last-child,
+.lpbChatMarkdown ol:last-child {
+  margin-bottom: 0;
+}
