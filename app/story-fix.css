@@ -4,6 +4,89 @@
   gap: 14px;
 }
 
+.chat .messages {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.chat .messages > .message-row {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  display: flex;
+  position: static;
+}
+
+.chat .messages > .user-row {
+  justify-content: flex-end;
+}
+
+.chat .messages > .assistant-row {
+  justify-content: flex-start;
+}
+
+.chat .message-bubble {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 11px 13px;
+  border-radius: 10px;
+  font-size: 10px;
+  line-height: 1.55;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  writing-mode: horizontal-tb;
+  position: static;
+}
+
+.chat .message-bubble.user-bubble {
+  display: block;
+  width: auto;
+  max-width: 80%;
+  min-width: 0;
+  flex: 0 1 auto;
+  background: #2c3856;
+  color: #fff;
+  text-align: left;
+}
+
+.chat .message-bubble.user-bubble > span {
+  display: block;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  writing-mode: horizontal-tb;
+}
+
+.chat .message-bubble.assistant-bubble {
+  width: auto;
+  max-width: 92%;
+  min-width: 0;
+  background: #fff;
+  border: 1px solid #e6e6e2;
+}
+
+.chat .message-bubble.assistant-bubble small {
+  display: flex;
+  gap: 4px;
+  color: #7a6d9c;
+  border-top: 1px solid #eee;
+  padding-top: 7px;
+  margin-top: 8px;
+}
+
+.chat .message-bubble.assistant-bubble small svg {
+  width: 12px;
+}
+
 .chat-body {
   min-width: 0;
 }
@@ -20,18 +103,20 @@
   width: 100%;
   max-width: none;
   min-width: 0;
+  flex-shrink: 0;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   display: flex;
+  position: static;
 }
 
 .messages > .user-row {
   justify-content: flex-end;
 }
 
-.messages > .ai-row {
+.messages > .assistant-row {
   justify-content: flex-start;
 }
 
@@ -48,15 +133,19 @@
   writing-mode: horizontal-tb;
 }
 
-.message-bubble.user {
+.message-bubble.user-bubble {
+  display: block;
   width: auto;
-  max-width: 78%;
+  max-width: 80%;
+  min-width: 0;
+  flex: 0 1 auto;
   background: #2c3856;
   color: #fff;
   text-align: left;
+  position: static;
 }
 
-.message-bubble.user > span {
+.message-bubble.user-bubble > span {
   display: block;
   white-space: normal;
   overflow-wrap: break-word;
@@ -64,14 +153,16 @@
   writing-mode: horizontal-tb;
 }
 
-.message-bubble.ai {
-  width: 100%;
-  max-width: 100%;
+.message-bubble.assistant-bubble {
+  width: auto;
+  max-width: 92%;
+  min-width: 0;
   background: #fff;
   border: 1px solid #e6e6e2;
+  position: static;
 }
 
-.message-bubble.ai small {
+.message-bubble.assistant-bubble small {
   display: flex;
   gap: 4px;
   color: #7a6d9c;
@@ -80,7 +171,7 @@
   margin-top: 8px;
 }
 
-.message-bubble.ai small svg {
+.message-bubble.assistant-bubble small svg {
   width: 12px;
 }
 
@@ -248,6 +339,36 @@
   color: #b45a42;
   font-size: 11px;
   line-height: 1.5;
+}
+
+.auth-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-color: #f1c4b8;
+  background: #fff7f3;
+  color: #8f3f2f;
+}
+
+.auth-error-banner b {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.auth-error-banner span {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.auth-error-banner button {
+  border: 0;
+  background: #8f3f2f;
+  color: #fff;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 11px;
 }
 
 .fund-dna-builder {
@@ -1492,6 +1613,25 @@
   gap: 8px;
 }
 
+.lp-dna-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 7px;
+  padding: 10px 0;
+  border-top: 1px solid #ecece8;
+}
+
+.lp-dna-row b {
+  align-self: center;
+  color: #485467;
+  font-size: 9px;
+}
+
+.lp-dna-row textarea {
+  grid-column: 1 / -1;
+  min-height: 56px;
+}
+
 .live-mvp-grid input,
 .live-mvp-grid textarea,
 .live-mvp-grid select {
@@ -2233,3 +2373,14 @@
   .persona-grid article{min-height:0}
   .discovery-queue aside{border-left:0;border-top:1px solid #ecebe7;padding:12px 0 0}
 }
+
+.chat .messages{width:100%;display:flex;flex-direction:column;align-items:stretch;gap:12px}
+.chat .messages>.message-row{width:100%;max-width:none;min-width:0;flex-shrink:0;padding:0;border:0;border-radius:0;background:transparent;display:flex;position:static}
+.chat .messages>.user-row{justify-content:flex-end}
+.chat .messages>.assistant-row{justify-content:flex-start}
+.chat .message-bubble{box-sizing:border-box;min-width:0;padding:11px 13px;border-radius:10px;font-size:10px;line-height:1.55;white-space:normal;overflow-wrap:break-word;word-break:normal;writing-mode:horizontal-tb;position:static}
+.chat .message-bubble.user-bubble{display:block;width:auto;max-width:80%;min-width:0;flex:0 1 auto;background:#2c3856;color:#fff;text-align:left}
+.chat .message-bubble.user-bubble>span{display:block;white-space:normal;overflow-wrap:break-word;word-break:normal;writing-mode:horizontal-tb}
+.chat .message-bubble.assistant-bubble{width:auto;max-width:92%;min-width:0;background:#fff;border:1px solid #e6e6e2}
+.chat .message-bubble.assistant-bubble small{display:flex;gap:4px;color:#7a6d9c;border-top:1px solid #eee;padding-top:7px;margin-top:8px}
+.chat .message-bubble.assistant-bubble small svg{width:12px}
