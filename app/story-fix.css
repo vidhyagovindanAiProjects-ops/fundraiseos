@@ -4,6 +4,123 @@
   gap: 14px;
 }
 
+.chat-body {
+  min-width: 0;
+}
+
+.messages {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.messages > .message-row {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  display: flex;
+}
+
+.messages > .user-row {
+  justify-content: flex-end;
+}
+
+.messages > .ai-row {
+  justify-content: flex-start;
+}
+
+.message-bubble {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 11px 13px;
+  border-radius: 10px;
+  font-size: 10px;
+  line-height: 1.55;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  writing-mode: horizontal-tb;
+}
+
+.message-bubble.user {
+  width: auto;
+  max-width: 78%;
+  background: #2c3856;
+  color: #fff;
+  text-align: left;
+}
+
+.message-bubble.user > span {
+  display: block;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  writing-mode: horizontal-tb;
+}
+
+.message-bubble.ai {
+  width: 100%;
+  max-width: 100%;
+  background: #fff;
+  border: 1px solid #e6e6e2;
+}
+
+.message-bubble.ai small {
+  display: flex;
+  gap: 4px;
+  color: #7a6d9c;
+  border-top: 1px solid #eee;
+  padding-top: 7px;
+  margin-top: 8px;
+}
+
+.message-bubble.ai small svg {
+  width: 12px;
+}
+
+.markdown-answer {
+  display: block;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.markdown-answer p {
+  margin: 0 0 8px;
+}
+
+.markdown-answer p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-answer strong {
+  font-weight: 700;
+  color: #25314f;
+}
+
+.markdown-answer ul,
+.markdown-answer ol {
+  margin: 0 0 8px 16px;
+  padding: 0;
+  white-space: normal;
+}
+
+.markdown-answer li {
+  margin: 3px 0;
+  padding-left: 2px;
+}
+
+.markdown-answer ul:last-child,
+.markdown-answer ol:last-child {
+  margin-bottom: 0;
+}
+
 .story-shell .phase-drop {
   margin: 0;
   width: 100%;
