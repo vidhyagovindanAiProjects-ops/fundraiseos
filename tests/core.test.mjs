@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { normalizeFundDNA, normalizeMeetingExtraction } from "../lib/ai-schemas.ts";
 import { createMeetingBrief, explainLPOpportunity, normalizeLPDNA, lpFromCsv, parseCsvRows, prioritizeThisWeek } from "../lib/live-workspace.ts";
 import { groundedSystemPrompt, groundedWorkspaceAnswer, groundingPreflight } from "../lib/chat-grounding.ts";
-import { buildAuthenticatedWorkspaceContext, onlyRowsOwnedBy, requiresServerWorkspaceContext, shouldAllowLocalWorkspaceFallback } from "../lib/workspace-security.ts";
+import { buildAuthenticatedWorkspaceContext, onlyRowsOwnedBy, requiresServerWorkspaceContext, shouldAllowLocalWorkspaceFallback, workspaceBelongsToOwner, workspaceInsertPayload } from "../lib/workspace-security.ts";
 
 test("normalizes structured Fund DNA with confidence labels and evidence", () => {
   const dna = normalizeFundDNA({
@@ -530,4 +530,18 @@ test("signed-in My Fund persistence failure cannot silently use local fallback",
   assert.equal(shouldAllowLocalWorkspaceFallback(false, false), true);
   const source = readFileSync(new URL("../components/demo-mode.tsx", import.meta.url), "utf8");
   assert.match(source, /Nothing was persisted locally as a success/);
+});
+
+test("first-time workspace creation uses authenticated owner id", () => {
+  assert.deepEqual(workspaceInsertPayload("user-a"), {
+    owner_id: "user-a",
+    name: "My Fund Workspace",
+    mode: "live",
+  });
+});
+
+test("existing workspace loading requires matching owner and live mode", () => {
+  assert.equal(workspaceBelongsToOwner({ id: "workspace-a", owner_id: "user-a", mode: "live" }, "user-a"), true);
+  assert.equal(workspaceBelongsToOwner({ id: "workspace-b", owner_id: "user-b", mode: "live" }, "user-a"), false);
+  assert.equal(workspaceBelongsToOwner({ id: "workspace-a", owner_id: "user-a", mode: "demo" }, "user-a"), false);
 });

@@ -14,6 +14,14 @@ export function onlyRowsOwnedBy<T extends DbRow>(rows: T[] | null | undefined, o
   return (rows || []).filter((row) => row.owner_id === ownerId);
 }
 
+export function workspaceInsertPayload(ownerId: string) {
+  return { owner_id: ownerId, name: "My Fund Workspace", mode: PRIVATE_WORKSPACE_MODE };
+}
+
+export function workspaceBelongsToOwner(workspace: DbRow | null | undefined, ownerId: string) {
+  return Boolean(workspace && workspace.owner_id === ownerId && workspace.mode === PRIVATE_WORKSPACE_MODE);
+}
+
 function text(value: unknown) {
   return String(value || "").trim();
 }

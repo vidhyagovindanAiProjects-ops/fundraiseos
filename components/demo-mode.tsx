@@ -6,7 +6,7 @@ import { activities as seedActivity, demoLPs, type Heat, type LP, type LPType } 
 import { normalizeFundDNA, normalizeMeetingExtraction, type FundDNARecord, type MeetingExtractionRecord } from "@/lib/ai-schemas";
 import { createClient } from "@/lib/supabase/client";
 import { createMeetingBrief, emptyLPDNA, explainLPOpportunity, lpFromCsv, normalizeLPDNA, parseCsvRows, prioritizeThisWeek, timelineEntryFromMeeting, uid, type LPOutcomeEvent, type LiveLPRecord, type LiveTimelineEntry, type RecommendationFeedback, type RecommendationFeedbackValue, type RejectionReason, type RelationshipPath, type RelationshipPathType } from "@/lib/live-workspace";
-import { shouldAllowLocalWorkspaceFallback } from "@/lib/workspace-security";
+import { shouldAllowLocalWorkspaceFallback, workspaceBelongsToOwner, workspaceInsertPayload } from "@/lib/workspace-security";
 import { LPChatMessage } from "./lp-chat-message";
 
 type Screen = "Home" | "LP Pipeline" | "Meetings" | "Knowledge" | "Discover Investors" | "Integrations" | "Settings" | "Fund DNA" | "Fundraising Strategy" | "LP Opportunities" | "LP Directory" | "Follow-ups" | "Relationship Graph";
@@ -1281,11 +1281,15 @@ async function getOrCreateLiveWorkspace(ownerId: string) {
   const supabase = createClient();
   if (!supabase) throw new Error("Supabase is not configured.");
   const existing = await supabase.from("workspaces").select("*").eq("owner_id", ownerId).eq("mode", "live").order("created_at", { ascending: true }).limit(1).maybeSingle();
-  if (existing.error) throw new Error("Could not load My Fund Workspace from Supabase.");
-  if (existing.data) return existing.data;
-  const created = await supabase.from("workspaces").insert({ owner_id: ownerId, name: "My Fund Workspace", mode: "live" }).select("*").single();
-  if (created.error || !created.data) throw new Error("Could not create My Fund Workspace in Supabase.");
-  return created.data;
+  if (existing.error) throw new Error(`Could not load My Fund Workspace from Supabase: ${existing.error.message}`);
+  if (workspaceBelongsToOwner(existing.data, ownerId)) return existing.data;
+  const created = await supabase.from("workspaces").insert(workspaceInsertPayload(ownerId)).select("*").maybeSingle();
+  if (created.error) throw new Error(`Could not create My Fund Workspace in Supabase: ${created.error.message}`);
+  if (workspaceBelongsToOwner(created.data, ownerId)) return created.data;
+  const reloaded = await supabase.from("workspaces").select("*").eq("owner_id", ownerId).eq("mode", "live").order("created_at", { ascending: true }).limit(1).maybeSingle();
+  if (reloaded.error) throw new Error(`Could not reload My Fund Workspace after creation: ${reloaded.error.message}`);
+  if (!workspaceBelongsToOwner(reloaded.data, ownerId)) throw new Error("Could not create My Fund Workspace in Supabase: no owner-scoped workspace was returned.");
+  return reloaded.data;
 }
 
 async function saveOnboardingWorkspaceToSupabase(summary: OnboardingSummary): Promise<OnboardingSummary> {
@@ -1499,10 +1503,12 @@ function LiveMvpWorkflow() {
           if (!cancelled) setError("Sign in to load or save My Fund Workspace. Private workspace data was not loaded from local storage.");
           return;
         }
-        let { data: workspace } = await supabase.from("workspaces").select("*").eq("owner_id", ownerId).eq("mode", "live").order("created_at", { ascending: true }).limit(1).maybeSingle();
-        if (!workspace) {
-          const created = await supabase.from("workspaces").insert({ owner_id: ownerId, name: "My Fund Workspace", mode: "live" }).select("*").single();
-          workspace = created.data;
+        let workspace = null as Record<string, any> | null;
+        try {
+          workspace = await getOrCreateLiveWorkspace(ownerId);
+        } catch (workspaceError) {
+          if (!cancelled) setError(workspaceError instanceof Error ? workspaceError.message : "Could not create or load My Fund Workspace from Supabase. Private workspace data was not loaded from local storage.");
+          return;
         }
         if (!workspace) {
           if (!cancelled) setError("Could not create or load My Fund Workspace from Supabase. Private workspace data was not loaded from local storage.");
