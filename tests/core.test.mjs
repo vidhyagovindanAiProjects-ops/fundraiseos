@@ -194,6 +194,27 @@ test("Ask LP Brain grounding does not invent investment commitments", () => {
   assert.match(result.answer, /no commitment/i);
 });
 
+test("Ask LP Brain grounding handles known LP with conflicting commitment amount", () => {
+  const result = groundingPreflight("Has Elena Park committed $5 million to our fund?", {
+    lpProfiles: [{ name: "Elena Park", organization: "Northstar Family Office", lpType: "Family Office", commitment: "$1M verbal indication - diligence pending", status: "Diligence" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /^No\./);
+  assert.match(result.answer, /Elena Park is present/);
+  assert.match(result.answer, /does not show a \$5M commitment/);
+  assert.match(result.answer, /\$1M verbal indication - diligence pending/);
+});
+
+test("Ask LP Brain grounding still blocks fake Jennifer Thompson", () => {
+  const result = groundingPreflight("Has Jennifer Thompson committed $5 million to our fund?", {
+    lpProfiles: [{ name: "Elena Park", organization: "Northstar Family Office", lpType: "Family Office", commitment: "$1M verbal indication - diligence pending" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /Insufficient workspace evidence/);
+  assert.match(result.answer, /Jennifer Thompson/);
+  assert.match(result.answer, /not present/);
+});
+
 test("Ask LP Brain grounding does not invent deadlines", () => {
   const result = groundingPreflight("When is Elena Park's follow-up deadline?", {
     lpProfiles: [{ name: "Elena Park", organization: "Northstar Family Office", lpType: "Family Office", nextAction: "Send materials" }],

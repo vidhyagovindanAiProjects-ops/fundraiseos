@@ -38,7 +38,7 @@ function asArray(value: unknown): unknown[] {
 
 export function namedEntitiesFromQuestion(question: string) {
   const matches = question.match(/\b[A-Z][A-Za-z]*(?:\s+(?:[A-Z][A-Za-z]*|of|the|and|&)){1,5}/g) || [];
-  const questionWords = new Set(["Tell", "Give", "Which", "What", "Who", "Why", "How", "Draft", "List", "Show", "Explain", "Did"]);
+  const questionWords = new Set(["Tell", "Give", "Which", "What", "Who", "Why", "How", "Draft", "List", "Show", "Explain", "Did", "Has", "Have", "Is", "Are"]);
   return [...new Set(matches.map((match) => {
     const parts = match.trim().split(/\s+/);
     return questionWords.has(parts[0]) ? parts.slice(1).join(" ") : parts.join(" ");
@@ -84,6 +84,36 @@ function hasCommitmentEvidence(profile: Record<string, unknown>) {
   return isMeaningfulFact(profile.commitment) || isMeaningfulFact(profile.commitmentAmount) || String(profile.status || "").toLowerCase().includes("commit");
 }
 
+function commitmentEvidenceText(profile: Record<string, unknown>) {
+  return [
+    isMeaningfulFact(profile.commitment) ? String(profile.commitment).trim() : "",
+    isMeaningfulFact(profile.commitmentAmount) ? String(profile.commitmentAmount).trim() : "",
+    isMeaningfulFact(profile.estimatedCommitmentRange) ? String(profile.estimatedCommitmentRange).trim() : "",
+    String(profile.status || "").toLowerCase().includes("commit") ? `Status: ${String(profile.status).trim()}` : "",
+  ].filter(Boolean).join("; ");
+}
+
+function extractMoneyAmounts(text: string) {
+  const amounts: number[] = [];
+  const matches = text.matchAll(/\$?\s*(\d+(?:\.\d+)?)\s*(m|mm|million|k|thousand)?\b/gi);
+  for (const match of matches) {
+    const rawNumber = Number(match[1]);
+    if (!Number.isFinite(rawNumber)) continue;
+    const unit = (match[2] || "").toLowerCase();
+    if (!unit && !match[0].includes("$")) continue;
+    if (unit === "k" || unit === "thousand") amounts.push(rawNumber * 1000);
+    else if (unit === "m" || unit === "mm" || unit === "million") amounts.push(rawNumber * 1000000);
+    else amounts.push(rawNumber);
+  }
+  return [...new Set(amounts)];
+}
+
+function formatMoney(amount: number) {
+  if (amount >= 1000000 && amount % 1000000 === 0) return `$${amount / 1000000}M`;
+  if (amount >= 1000 && amount % 1000 === 0) return `$${amount / 1000}K`;
+  return `$${amount.toLocaleString("en-US")}`;
+}
+
 function hasMeetingEvidence(profile: Record<string, unknown>) {
   return asArray(profile.meetings).length > 0 || String(profile.recentActivity || profile.activity || "").toLowerCase().includes("meeting");
 }
@@ -122,6 +152,17 @@ export function groundingPreflight(question: string, memory: unknown) {
         answer: `Workspace fact: ${profileName(profile)} is present in the workspace. Insufficient workspace evidence: no commitment or verbal commitment is recorded for ${profileName(profile)}. AI recommendation: confirm commitment status directly before treating this LP as committed.`,
         reason: "missing_commitment_evidence",
       };
+    }
+    if (askedForCommitment(question)) {
+      const requestedAmounts = extractMoneyAmounts(question);
+      const evidence = commitmentEvidenceText(profile);
+      const recordedAmounts = extractMoneyAmounts(evidence);
+      if (requestedAmounts.length && recordedAmounts.length && !requestedAmounts.some((requested) => recordedAmounts.includes(requested))) {
+        return {
+          answer: `No. Workspace fact: ${profileName(profile)} is present in the workspace. The workspace does not show a ${requestedAmounts.map(formatMoney).join(" or ")} commitment. It shows: ${evidence}. AI recommendation: treat any larger commitment amount as unconfirmed unless it is added to the workspace with evidence.`,
+          reason: "conflicting_commitment_evidence",
+        };
+      }
     }
     if (askedForMeeting(question) && !hasMeetingEvidence(profile)) {
       return {
