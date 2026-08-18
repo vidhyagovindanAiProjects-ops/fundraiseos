@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeFundDNA, normalizeMeetingExtraction } from "../lib/ai-schemas.ts";
 import { createMeetingBrief, explainLPOpportunity, normalizeLPDNA, lpFromCsv, parseCsvRows, prioritizeThisWeek } from "../lib/live-workspace.ts";
-import { groundedSystemPrompt, groundingPreflight } from "../lib/chat-grounding.ts";
+import { groundedSystemPrompt, groundedWorkspaceAnswer, groundingPreflight } from "../lib/chat-grounding.ts";
 
 test("normalizes structured Fund DNA with confidence labels and evidence", () => {
   const dna = normalizeFundDNA({
@@ -231,4 +231,80 @@ test("Ask LP Brain prompt requires explicit uncertainty and grounded category cl
   assert.match(prompt, /Do not recommend Emerging Managers/);
   assert.match(prompt, /Workspace fact/);
   assert.match(prompt, /AI inference\/recommendation/);
+});
+
+test("Ask LP Brain does not call undated next action due today", () => {
+  const result = groundedWorkspaceAnswer("Who needs a follow-up today?", {
+    currentDateIso: "2026-08-17T12:00:00.000Z",
+    lpProfiles: [{ name: "Nora Ellis", organization: "Blue River Office", nextAction: "Send data room access" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /no follow-up is supported as due today/);
+  assert.match(result.answer, /without usable factual due dates/);
+  assert.doesNotMatch(result.answer, /Nora Ellis.*due today/i);
+});
+
+test("Ask LP Brain identifies actual overdue action with date", () => {
+  const result = groundedWorkspaceAnswer("Who needs a follow-up today?", {
+    currentDateIso: "2026-08-17T12:00:00.000Z",
+    lpProfiles: [{ name: "Nora Ellis", organization: "Blue River Office", nextAction: "Send data room access", due: "2026-08-15" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /Overdue workspace facts/);
+  assert.match(result.answer, /2026-08-15/);
+});
+
+test("Ask LP Brain does not call future action overdue", () => {
+  const result = groundedWorkspaceAnswer("Who needs a follow-up today?", {
+    currentDateIso: "2026-08-17T12:00:00.000Z",
+    lpProfiles: [{ name: "Nora Ellis", organization: "Blue River Office", nextAction: "Send data room access", due: "2026-08-20" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /no follow-up is supported as due today/);
+  assert.doesNotMatch(result.answer, /Overdue workspace facts/);
+  assert.doesNotMatch(result.answer, /Nora Ellis.*overdue/i);
+});
+
+test("Ask LP Brain preserves verbal indication as not confirmed commitment", () => {
+  const result = groundedWorkspaceAnswer("Which LPs are closest to committing, based only on evidence in my workspace?", {
+    lpProfiles: [{ name: "Nora Ellis", organization: "Blue River Office", commitment: "$1M verbal indication - diligence pending", status: "Diligence" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /not confirmed/);
+  assert.match(result.answer, /\$1M verbal indication - diligence pending/);
+  assert.doesNotMatch(result.answer, /confirmed commitment.*Nora Ellis/i);
+});
+
+test("Ask LP Brain objection aggregation cannot assign unsupported objection", () => {
+  const result = groundedWorkspaceAnswer("What are the biggest objections across my LP conversations?", {
+    lpProfiles: [
+      { name: "Nora Ellis", organization: "Blue River Office", concern: "Attribution clarity" },
+      { name: "Maya Chen", organization: "River Family Office", lpType: "Family Office" },
+    ],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /Attribution clarity/);
+  assert.match(result.answer, /Nora Ellis/);
+  assert.doesNotMatch(result.answer, /Maya Chen/);
+});
+
+test("Ask LP Brain ranking cannot introduce absent LP", () => {
+  const result = groundedWorkspaceAnswer("Who are my top 5 LPs to focus on this week, and why?", {
+    currentDateIso: "2026-08-17T12:00:00.000Z",
+    lpProfiles: [{ id: "lp-nora", name: "Nora Ellis", organization: "Blue River Office", status: "Diligence", strength: 80, nextAction: "Send data room access", due: "2026-08-17" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /Nora Ellis/);
+  assert.doesNotMatch(result.answer, /Jennifer Thompson/);
+});
+
+test("Ask LP Brain relative date strings cannot create absolute due-today claims", () => {
+  const result = groundedWorkspaceAnswer("Who needs a follow-up today?", {
+    currentDateIso: "2026-08-17T12:00:00.000Z",
+    lpProfiles: [{ name: "Nora Ellis", organization: "Blue River Office", nextAction: "Send data room access", due: "Today" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /relative date text/);
+  assert.match(result.answer, /Insufficient workspace evidence/);
+  assert.doesNotMatch(result.answer, /Nora Ellis.*due today/i);
 });

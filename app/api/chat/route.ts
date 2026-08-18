@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
-import { groundedSystemPrompt, groundingPreflight } from "@/lib/chat-grounding";
+import { groundedSystemPrompt, groundedWorkspaceAnswer, groundingPreflight } from "@/lib/chat-grounding";
 
 export const runtime = "nodejs";
 
@@ -67,6 +67,26 @@ export async function POST(request: Request) {
         timestamp: new Date().toISOString(),
         sourceRecordIds: ["memory-context"],
         outputStatus: "insufficient_workspace_evidence",
+      },
+    });
+  }
+
+  const groundedAnswer = groundedWorkspaceAnswer(question, memory);
+  if (groundedAnswer) {
+    console.info("[ask-memory] Grounded workspace answer generated", {
+      promptVersion: PROMPT_VERSION,
+      reason: groundedAnswer.reason,
+      hasContext: Boolean(context),
+    });
+    return NextResponse.json({
+      answer: groundedAnswer.answer,
+      sources: ["Fundraising memory"],
+      trace: {
+        model: "grounding-deterministic",
+        promptVersion: PROMPT_VERSION,
+        timestamp: new Date().toISOString(),
+        sourceRecordIds: ["memory-context"],
+        outputStatus: "grounded_workspace_answer",
       },
     });
   }
