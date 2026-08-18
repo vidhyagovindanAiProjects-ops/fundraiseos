@@ -1,10 +1,11 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
+import { groundedSystemPrompt, groundingPreflight } from "@/lib/chat-grounding";
 
 export const runtime = "nodejs";
 
 const MODEL = process.env.OPENAI_EXTRACTION_MODEL || "gpt-4o-mini";
-const PROMPT_VERSION = "ask-memory-mvp-v2";
+const PROMPT_VERSION = "ask-memory-grounded-v3";
 const demoContext = `Elena Park at Northstar Family Office was introduced by Marcus Chen. She is interested in AI infrastructure, asked for the data room, and is concerned about attribution clarity. David Mercer at Hawthorne Endowment asked for founder references and focuses on enterprise AI. Aisha Patel at Crescent Peak is interested in AI and developer tools and asked for a partner meeting.`;
 
 function compact(value: unknown, maxChars = 24000) {
@@ -36,7 +37,40 @@ export async function POST(request: Request) {
     }, { status: 501 });
   }
 
-  const memory = context ?? { demoMemory: demoContext };
+  const memory = context ?? (mode === "demo" ? { demoMemory: demoContext } : null);
+  if (!memory) {
+    return NextResponse.json({
+      answer: "Insufficient workspace evidence: no workspace context was supplied. I can only answer using LPs, people, organizations, meetings, commitments, relationship paths, and dates already in the workspace.",
+      sources: ["Fundraising memory"],
+      trace: {
+        model: "grounding-preflight",
+        promptVersion: PROMPT_VERSION,
+        timestamp: new Date().toISOString(),
+        sourceRecordIds: [],
+        outputStatus: "insufficient_workspace_evidence",
+      },
+    });
+  }
+  const groundingBlock = groundingPreflight(question, memory);
+  if (groundingBlock) {
+    console.info("[ask-memory] Grounding preflight blocked answer", {
+      promptVersion: PROMPT_VERSION,
+      reason: groundingBlock.reason,
+      hasContext: Boolean(context),
+    });
+    return NextResponse.json({
+      answer: groundingBlock.answer,
+      sources: ["Fundraising memory"],
+      trace: {
+        model: "grounding-preflight",
+        promptVersion: PROMPT_VERSION,
+        timestamp: new Date().toISOString(),
+        sourceRecordIds: ["memory-context"],
+        outputStatus: "insufficient_workspace_evidence",
+      },
+    });
+  }
+
   console.info("[ask-memory] OpenAI request started", {
     model: MODEL,
     promptVersion: PROMPT_VERSION,
@@ -52,16 +86,7 @@ export async function POST(request: Request) {
       messages: [
         {
           role: "system",
-          content: [
-            "You are LP Brain, an AI-native LP discovery and relationship intelligence assistant for emerging venture fund managers.",
-            "Answer the user's exact question using only the supplied fundraising memory context.",
-            "Use Fund DNA, LP profiles, relationship intelligence, strategy, opportunities, outcomes, and tasks when present.",
-            "If the user requests a count or format, follow it exactly.",
-            "Use currentDate/currentDateIso from context when discussing deadlines; do not recommend a deadline that is already in the past.",
-            "Separate facts from recommendations when useful.",
-            "Do not invent LP preferences, commitments, relationship paths, or external investor data.",
-            "Return clean concise prose or bullets. Do not return raw JSON.",
-          ].join(" "),
+          content: groundedSystemPrompt(),
         },
         {
           role: "user",

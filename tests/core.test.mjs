@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeFundDNA, normalizeMeetingExtraction } from "../lib/ai-schemas.ts";
-import { createMeetingBrief, lpFromCsv, parseCsvRows, prioritizeThisWeek } from "../lib/live-workspace.ts";
+import { createMeetingBrief, explainLPOpportunity, normalizeLPDNA, lpFromCsv, parseCsvRows, prioritizeThisWeek } from "../lib/live-workspace.ts";
+import { groundedSystemPrompt, groundingPreflight } from "../lib/chat-grounding.ts";
 
 test("normalizes structured Fund DNA with confidence labels and evidence", () => {
   const dna = normalizeFundDNA({
@@ -93,4 +94,120 @@ test("Meeting prep cites only Fund DNA, LP record, and timeline", () => {
   assert.match(brief.relationshipSummary, /Maya Chen/);
   assert.ok(brief.citations.some((citation) => citation.includes("Fund DNA")));
   assert.ok(brief.assumptions[0].includes("No LP investment history"));
+});
+
+test("LP DNA preserves known, inferred, and unknown labels", () => {
+  const dna = normalizeLPDNA({
+    geography: { status: "known", value: "United States", evidenceSource: "LP spreadsheet", evidenceText: "US family office" },
+    sectorPreferences: { status: "inferred", value: "AI", evidenceSource: "Meeting note", evidenceText: "asked about AI infrastructure" },
+  });
+  assert.equal(dna.geography.status, "known");
+  assert.equal(dna.sectorPreferences.status, "inferred");
+  assert.equal(dna.checkSizeRange.status, "unknown");
+  assert.equal(dna.checkSizeRange.value, "Unknown");
+});
+
+test("Meeting prep uses relationship paths and surfaces unknown LP DNA gaps", () => {
+  const lp = {
+    id: "lp-path",
+    workspaceId: "w1",
+    name: "Elena Park",
+    organization: "Northstar",
+    lpType: "Family Office",
+    email: "elena@example.com",
+    relationshipOwner: "The GP",
+    relationshipSource: "Founder intro",
+    relationshipStrength: "Warm",
+    priorInteractions: "One intro call",
+    currentStage: "First meeting",
+    estimatedCommitmentRange: "Unknown",
+    nextAction: "Prepare meeting",
+    nextActionDate: "2026-08-03",
+    notes: "",
+    lpDNA: normalizeLPDNA({ sectorPreferences: { status: "known", value: "AI", evidenceSource: "Call note" } }),
+    createdAt: "2026-08-01T00:00:00Z",
+    updatedAt: "2026-08-01T00:00:00Z",
+  };
+  const dna = normalizeFundDNA({ fundName: "Example Fund", stage: "Seed", sectors: ["AI"], typicalInvestmentCheck: "$250K-$500K", recommendedPositioning: "AI seed specialist", evidence: { recommendedPositioning: ["thesis mentions AI"] } });
+  const paths = [{ id: "path1", workspaceId: "w1", lpId: "lp-path", sourcePerson: "The GP", targetPerson: "Portfolio Founder", pathType: "First-degree introduction", relationshipStrength: "Warm", evidenceSource: "Manual", evidenceText: "Founder offered intro", notes: "", lastVerifiedDate: "2026-08-01", createdAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z" }];
+  const brief = createMeetingBrief(dna, lp, [], paths);
+  assert.match(brief.bestKnownIntroductionPath, /Portfolio Founder/);
+  assert.ok(brief.informationGaps.some((gap) => gap.includes("LP DNA checkSizeRange is Unknown")));
+});
+
+test("LP opportunity explanation uses categories instead of numeric predictive scores", () => {
+  const lp = {
+    id: "lp-fit",
+    workspaceId: "w1",
+    name: "Maya Chen",
+    organization: "River FO",
+    lpType: "Family Office",
+    email: "maya@example.com",
+    relationshipOwner: "The GP",
+    relationshipSource: "Advisor",
+    relationshipStrength: "Warm",
+    priorInteractions: "One meeting",
+    currentStage: "Contacted",
+    estimatedCommitmentRange: "$250K-$500K",
+    nextAction: "Ask for intro",
+    nextActionDate: "2026-08-03",
+    notes: "",
+    lpDNA: normalizeLPDNA({
+      sectorPreferences: { status: "known", value: "AI infrastructure", evidenceSource: "Meeting note", evidenceText: "asked about AI infrastructure" },
+      checkSizeRange: { status: "known", value: "$250K-$500K", evidenceSource: "LP spreadsheet" },
+      emergingManagerAppetite: { status: "inferred", value: "Open to emerging managers", evidenceSource: "Advisor note" },
+    }),
+    createdAt: "2026-08-01T00:00:00Z",
+    updatedAt: "2026-08-01T00:00:00Z",
+  };
+  const fund = normalizeFundDNA({ fundName: "Example Fund", stage: "Seed", sectors: ["AI"], typicalInvestmentCheck: "$250K-$500K", fundSummary: "AI fund", investmentStrategy: "Seed", idealLPProfile: "Family offices", recommendedPositioning: "AI seed specialist" });
+  const explanation = explainLPOpportunity(lp, fund, [{ id: "path1", workspaceId: "w1", lpId: "lp-fit", sourcePerson: "The GP", targetPerson: "Advisor", pathType: "First-degree introduction", relationshipStrength: "Warm", evidenceSource: "Manual", evidenceText: "Advisor knows LP", notes: "", lastVerifiedDate: "2026-08-01", createdAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z" }]);
+  assert.match(["High", "Medium", "Low", "Unknown"].join(","), new RegExp(explanation.potentialFit));
+  assert.ok(explanation.why.some((why) => why.includes("Sector alignment")));
+  assert.ok(!JSON.stringify(explanation).includes("% fit"));
+});
+
+test("Ask LP Brain grounding blocks nonexistent LP names", () => {
+  const result = groundingPreflight("Tell me about Jordan Blake", {
+    lpProfiles: [{ name: "Elena Park", organization: "Northstar Family Office", lpType: "Family Office" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /Insufficient workspace evidence/);
+  assert.match(result.answer, /Jordan Blake/);
+});
+
+test("Ask LP Brain grounding does not invent meetings", () => {
+  const result = groundingPreflight("What happened in Elena Park's meeting?", {
+    lpProfiles: [{ name: "Elena Park", organization: "Northstar Family Office", lpType: "Family Office", meetings: [] }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /Insufficient workspace evidence/);
+  assert.match(result.answer, /no meeting record/i);
+});
+
+test("Ask LP Brain grounding does not invent investment commitments", () => {
+  const result = groundingPreflight("Did Elena Park make a verbal commitment?", {
+    lpProfiles: [{ name: "Elena Park", organization: "Northstar Family Office", lpType: "Family Office", status: "Diligence" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /Insufficient workspace evidence/);
+  assert.match(result.answer, /no commitment/i);
+});
+
+test("Ask LP Brain grounding does not invent deadlines", () => {
+  const result = groundingPreflight("When is Elena Park's follow-up deadline?", {
+    lpProfiles: [{ name: "Elena Park", organization: "Northstar Family Office", lpType: "Family Office", nextAction: "Send materials" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /Insufficient workspace evidence/);
+  assert.match(result.answer, /no follow-up deadline/i);
+});
+
+test("Ask LP Brain prompt requires explicit uncertainty and grounded category claims", () => {
+  const prompt = groundedSystemPrompt();
+  assert.match(prompt, /Insufficient workspace evidence/);
+  assert.match(prompt, /never invent an LP, person, organization, meeting, commitment/);
+  assert.match(prompt, /Do not recommend Emerging Managers/);
+  assert.match(prompt, /Workspace fact/);
+  assert.match(prompt, /AI inference\/recommendation/);
 });
