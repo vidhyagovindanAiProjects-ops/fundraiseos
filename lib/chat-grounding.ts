@@ -80,17 +80,36 @@ function isMeaningfulFact(value: unknown) {
   return Boolean(text && text !== "unknown" && text !== "n/a" && text !== "none" && text !== "-");
 }
 
+function isNoCommitmentText(value: unknown) {
+  return /\b(no commitment|not committed|commitment amount\s*=?\s*0|committed\s*0)\b/i.test(String(value || ""));
+}
+
+function positiveCommitmentAmount(value: unknown) {
+  if (typeof value === "number") return value > 0 ? formatMoney(value) : "";
+  if (!isMeaningfulFact(value) || isNoCommitmentText(value)) return "";
+  const amounts = extractMoneyAmounts(String(value)).filter((amount) => amount > 0);
+  return amounts.length ? amounts.map(formatMoney).join(" / ") : "";
+}
+
+function commitmentEvidenceParts(profile: Record<string, unknown>) {
+  const commitment = isMeaningfulFact(profile.commitment) && !isNoCommitmentText(profile.commitment) ? formatMoneyInText(String(profile.commitment).trim()) : "";
+  const amount = positiveCommitmentAmount(profile.commitmentAmount);
+  const status = String(profile.status || "").trim();
+  const statusEvidence = /committed|verbal indication|soft indication|soft circle|diligence/i.test(status) && !isNoCommitmentText(status) ? `Status: ${status}` : "";
+  return [commitment, amount, statusEvidence].filter(Boolean);
+}
+
 function hasCommitmentEvidence(profile: Record<string, unknown>) {
-  return isMeaningfulFact(profile.commitment) || isMeaningfulFact(profile.commitmentAmount) || String(profile.status || "").toLowerCase().includes("commit");
+  return commitmentEvidenceParts(profile).length > 0;
 }
 
 function commitmentEvidenceText(profile: Record<string, unknown>) {
-  return [
-    isMeaningfulFact(profile.commitment) ? String(profile.commitment).trim() : "",
-    isMeaningfulFact(profile.commitmentAmount) ? String(profile.commitmentAmount).trim() : "",
-    isMeaningfulFact(profile.estimatedCommitmentRange) ? String(profile.estimatedCommitmentRange).trim() : "",
-    String(profile.status || "").toLowerCase().includes("commit") ? `Status: ${String(profile.status).trim()}` : "",
-  ].filter(Boolean).join("; ");
+  return commitmentEvidenceParts(profile).join("; ");
+}
+
+function hasClaimCommitmentEvidence(profile: Record<string, unknown>) {
+  const text = commitmentEvidenceText(profile).toLowerCase();
+  return Boolean(text && !/^status:\s*diligence$/i.test(text) && (/verbal indication|soft indication|soft circle|confirmed|committed|\$\d/i.test(text)));
 }
 
 function extractMoneyAmounts(text: string) {
@@ -175,7 +194,7 @@ function explicitObjections(profile: Record<string, unknown>) {
   const values = [
     profile.concern,
     isObject(profile) && Array.isArray(profile.concerns) ? profile.concerns.join("; ") : "",
-    ...asArray(profile.meetings).filter(isObject).map((meeting) => [meeting.concern, meeting.concerns, meeting.objection, meeting.objections, meeting.note].filter(isMeaningfulFact).join("; ")),
+    ...asArray(profile.meetings).filter(isObject).map((meeting) => [meeting.concern, meeting.concerns, meeting.objection, meeting.objections].filter(isMeaningfulFact).join("; ")),
   ].filter(isMeaningfulFact).map((value) => String(value).trim());
   return [...new Set(values)];
 }
@@ -236,6 +255,10 @@ function numbered(items: string[]) {
   return items.map((item, index) => `${index + 1}. ${item}`).join("\n");
 }
 
+function plusMore(total: number, shown: number, label = "records") {
+  return total > shown ? `\n+ ${total - shown} more ${label} in workspace` : "";
+}
+
 function bullets(items: string[]) {
   return items.map((item) => `- ${item}`).join("\n");
 }
@@ -262,7 +285,16 @@ function answerCold(memory: unknown) {
     return status.includes("cold") || status.includes("inactive") || activity.includes("cold") || activity.includes("inactive") || activity.includes("no response");
   });
   if (!profiles.length) return "Insufficient workspace evidence: no LP relationship is explicitly marked cold, inactive, or no-response in the supplied workspace context.";
-  return numbered(profiles.map((profile) => `${profileDisplay(profile)} - factual reason: status "${profile.status || "not recorded"}"; activity "${profile.recentActivity || profile.activity || "not recorded"}".`));
+  const shown = profiles.slice(0, 5);
+  return `${numbered(shown.map((profile) => `${profileDisplay(profile)} - factual reason: status "${profile.status || "not recorded"}"; activity "${profile.recentActivity || profile.activity || "not recorded"}".`))}${plusMore(profiles.length, shown.length, "cold records")}`;
+}
+
+function coldSectionTitle(memory: unknown) {
+  const hasDeterioration = limitedProfiles(memory).some((profile) => {
+    const activity = String(profile.recentActivity || profile.activity || "").toLowerCase();
+    return activity.includes("going cold") || activity.includes("cooling") || activity.includes("no response") || activity.includes("inactive");
+  });
+  return hasDeterioration ? "Relationships Going Cold" : "Relationships Currently Marked Cold";
 }
 
 function answerFollowUpToday(memory: unknown) {
@@ -279,10 +311,19 @@ function answerFollowUpToday(memory: unknown) {
   const relative = profiles.filter((profile) => dateStatus(profileDueValue(profile), today).kind === "relative");
   const noDatedAction = profiles.filter((profile) => isMeaningfulFact(profile.nextAction) && dateStatus(profileDueValue(profile), today).kind !== "iso");
   const parts: string[] = [];
-  if (!dueToday.length && !overdue.length) parts.push("No LP follow-ups have a factual due date of today or earlier in the current workspace.");
-  if (dueToday.length) parts.push(`Due today (${today}):\n${numbered(dueToday.map((profile) => `${profileDisplay(profile)} - ${profile.nextAction || "Follow up"}; due ${String(profileDueValue(profile))}.`))}`);
-  if (overdue.length) parts.push(`Overdue:\n${numbered(overdue.map((profile) => `${profileDisplay(profile)} - ${profile.nextAction || "Follow up"}; due ${String(profileDueValue(profile))}.`))}`);
-  if (noDatedAction.length) parts.push(`Not counted as due today because no factual ISO due date exists:\n${numbered(noDatedAction.map((profile) => `${profileDisplay(profile)} - next action: ${profile.nextAction || "recorded"}; date evidence: ${String(profileDueValue(profile) || "none")}.`))}`);
+  if (!dueToday.length && !overdue.length) parts.push("No follow-ups can be factually confirmed as due today from normalized workspace dates.");
+  if (dueToday.length) {
+    const shown = dueToday.slice(0, 5);
+    parts.push(`Due today (${today}):\n${numbered(shown.map((profile) => `${profileDisplay(profile)} - ${profile.nextAction || "Follow up"}; due ${String(profileDueValue(profile))}.`))}${plusMore(dueToday.length, shown.length, "due-today records")}`);
+  }
+  if (overdue.length) {
+    const shown = overdue.slice(0, 5);
+    parts.push(`Overdue:\n${numbered(shown.map((profile) => `${profileDisplay(profile)} - ${profile.nextAction || "Follow up"}; due ${String(profileDueValue(profile))}.`))}${plusMore(overdue.length, shown.length, "overdue records")}`);
+  }
+  if (noDatedAction.length) {
+    const shown = noDatedAction.slice(0, 5);
+    parts.push(`Next actions without verified due dates:\n${numbered(shown.map((profile) => `${profileDisplay(profile)} - ${profile.nextAction || "recorded"}.`))}${plusMore(noDatedAction.length, shown.length, "undated next actions")}`);
+  }
   if (relative.length) parts.push("Insufficient workspace evidence: one or more records use relative date text such as Today, Tomorrow, or Yesterday. I cannot convert that into an absolute due date without an ISO date in the workspace.");
   return parts.join("\n\n");
 }
@@ -298,20 +339,22 @@ function answerObjections(memory: unknown) {
   }
   if (!rows.length) return "Insufficient workspace evidence: no explicit LP objections are present in the supplied workspace context.";
   rows.sort((a, b) => b.names.length - a.names.length || a.objection.localeCompare(b.objection));
-  return rows.map((row) => `${row.objection}\n${bullets([`${row.names.length} LP${row.names.length === 1 ? "" : "s"}`, `LP names: ${row.names.join(", ")}`])}`).join("\n\n");
+  const shown = rows.slice(0, 5);
+  return `${shown.map((row, index) => `${index + 1}. ${row.objection} - ${row.names.length} LP${row.names.length === 1 ? "" : "s"}${row.names.length ? `\n   Representative LPs: ${row.names.slice(0, 3).join(", ")}${row.names.length > 3 ? ` (+${row.names.length - 3} more)` : ""}` : ""}`).join("\n")}${plusMore(rows.length, shown.length, "objection categories")}`;
 }
 
 function answerClosestToCommit(memory: unknown) {
   const rows = limitedProfiles(memory).map((profile) => ({ profile, stage: commitmentStage(profile) })).filter((row): row is { profile: Record<string, unknown>; stage: { label: string; evidence: string } } => Boolean(row.stage));
   if (!rows.length) return "Insufficient workspace evidence: no LP has recorded commitment, verbal indication, soft circle, or diligence commitment evidence.";
-  return numbered(rows.map(({ profile, stage }) => `${profileDisplay(profile)} - ${stage.label}. Evidence: ${formatMoneyInText(stage.evidence || String(profile.status || ""))}.`));
+  const shown = rows.slice(0, 5);
+  return `${numbered(shown.map(({ profile, stage }) => `${profileDisplay(profile)} - ${stage.label}. Evidence: ${formatMoneyInText(stage.evidence || String(profile.status || ""))}.`))}${plusMore(rows.length, shown.length, "commitment-stage records")}`;
 }
 
 export function groundedWorkspaceAnswer(question: string, memory: unknown) {
   const low = question.toLowerCase();
   const sections: { title: string; body: string; reason: string }[] = [];
   if (/\btop\b|\bfocus\b|\bprioriti[sz]e\b|\brank/.test(low)) sections.push({ title: "Top 5 to Focus on This Week", body: answerTopLPs(memory), reason: "evidence_based_prioritization" });
-  if (/\bcold|cooling|inactive|going cold|no response/.test(low)) sections.push({ title: "Relationships Going Cold", body: answerCold(memory), reason: "cold_relationship_detection" });
+  if (/\bcold|cooling|inactive|going cold|no response/.test(low)) sections.push({ title: coldSectionTitle(memory), body: answerCold(memory), reason: "cold_relationship_detection" });
   if (/\bfollow.?up\b/.test(low) && /\btoday\b/.test(low)) sections.push({ title: "Follow-ups Due / Overdue", body: answerFollowUpToday(memory), reason: "follow_up_today_grounding" });
   if (/\bobjection|concern|pushback/.test(low)) sections.push({ title: "Biggest Objections", body: answerObjections(memory), reason: "objection_aggregation" });
   if (/\bclosest\b.*\bcommit|\bcommit.*\bclosest|\blikely\b.*\bcommit/.test(low)) sections.push({ title: "Closest to Commitment", body: answerClosestToCommit(memory), reason: "commitment_stage_grounding" });
@@ -344,7 +387,7 @@ export function groundingPreflight(question: string, memory: unknown) {
   for (const entity of namedEntities) {
     const profile = findProfileForEntity(entity, memory);
     if (!profile) continue;
-    if (askedForCommitment(question) && !hasCommitmentEvidence(profile)) {
+    if (askedForCommitment(question) && !hasClaimCommitmentEvidence(profile)) {
       return {
         answer: `Workspace fact: ${profileName(profile)} is present in the workspace. Insufficient workspace evidence: no commitment or verbal commitment is recorded for ${profileName(profile)}. AI recommendation: confirm commitment status directly before treating this LP as committed.`,
         reason: "missing_commitment_evidence",

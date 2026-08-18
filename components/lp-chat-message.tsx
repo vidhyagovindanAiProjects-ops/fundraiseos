@@ -6,6 +6,7 @@ type LPChatMessageProps = {
 };
 
 type MarkdownBlock =
+  | { type: "heading"; text: string }
   | { type: "paragraph"; text: string }
   | { type: "unordered"; items: string[] }
   | { type: "ordered"; items: string[] };
@@ -56,6 +57,13 @@ function parseMarkdownBlocks(markdown: string) {
     if (!trimmed) {
       flushParagraph();
       flushList();
+      continue;
+    }
+
+    if (trimmed.startsWith("## ")) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "heading", text: trimLine(trimmed.slice(3)) });
       continue;
     }
 
@@ -111,6 +119,7 @@ function Markdown({ content }: { content: string }) {
   return (
     <div className={styles.lpbChatMarkdown}>
       {blocks.length ? blocks.map((block, index) => {
+        if (block.type === "heading") return <h3 key={index}><MarkdownInline text={block.text} /></h3>;
         if (block.type === "paragraph") return <p key={index}><MarkdownInline text={block.text} /></p>;
         if (block.type === "ordered") return <ol key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}><MarkdownInline text={item} /></li>)}</ol>;
         return <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}><MarkdownInline text={item} /></li>)}</ul>;

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { normalizeFundDNA, normalizeMeetingExtraction } from "../lib/ai-schemas.ts";
 import { createMeetingBrief, explainLPOpportunity, normalizeLPDNA, lpFromCsv, parseCsvRows, prioritizeThisWeek } from "../lib/live-workspace.ts";
 import { groundedSystemPrompt, groundedWorkspaceAnswer, groundingPreflight } from "../lib/chat-grounding.ts";
@@ -239,8 +240,8 @@ test("Ask LP Brain does not call undated next action due today", () => {
     lpProfiles: [{ name: "Nora Ellis", organization: "Blue River Office", nextAction: "Send data room access" }],
   });
   assert.ok(result);
-  assert.match(result.answer, /No LP follow-ups have a factual due date of today or earlier/);
-  assert.match(result.answer, /Not counted as due today because no factual ISO due date exists/);
+  assert.match(result.answer, /No follow-ups can be factually confirmed as due today from normalized workspace dates/);
+  assert.match(result.answer, /Next actions without verified due dates/);
   assert.doesNotMatch(result.answer, /Nora Ellis.*due today/i);
 });
 
@@ -260,7 +261,7 @@ test("Ask LP Brain does not call future action overdue", () => {
     lpProfiles: [{ name: "Nora Ellis", organization: "Blue River Office", nextAction: "Send data room access", due: "2026-08-20" }],
   });
   assert.ok(result);
-  assert.match(result.answer, /No LP follow-ups have a factual due date of today or earlier/);
+  assert.match(result.answer, /No follow-ups can be factually confirmed as due today from normalized workspace dates/);
   assert.doesNotMatch(result.answer, /Overdue:/);
   assert.doesNotMatch(result.answer, /Nora Ellis.*overdue/i);
 });
@@ -320,7 +321,7 @@ test("Ask LP Brain compound request returns all five deterministic sections", ()
     relationshipIntelligence: { fitResults: { "lp-nora": { score: 94 }, "lp-maya": { score: 72 }, "lp-omar": { score: 60 } } },
   });
   assert.ok(result);
-  for (const title of ["Top 5 to Focus on This Week", "Relationships Going Cold", "Follow-ups Due / Overdue", "Biggest Objections", "Closest to Commitment"]) {
+  for (const title of ["Top 5 to Focus on This Week", "Relationships Currently Marked Cold", "Follow-ups Due / Overdue", "Biggest Objections", "Closest to Commitment"]) {
     assert.match(result.answer, new RegExp(`## ${title}`));
   }
   assert.match(result.reason, /evidence_based_prioritization/);
@@ -372,4 +373,81 @@ test("Ask LP Brain same LP in multiple sections does not leak facts to another L
   assert.match(commitmentSection, /Nora Ellis/);
   assert.match(commitmentSection, /verbal indication/);
   assert.doesNotMatch(commitmentSection, /Maya Chen/);
+});
+
+test("Ask LP Brain excludes no-commitment and zero-commitment records from closest-to-commit", () => {
+  const result = groundedWorkspaceAnswer("Which LPs are closest to committing, based only on evidence in my workspace?", {
+    lpProfiles: [
+      { name: "Nora Ellis", organization: "Blue River Office", commitment: "No commitment yet" },
+      { name: "Maya Chen", organization: "River Family Office", commitmentAmount: 0 },
+      { name: "Omar Singh", organization: "Hillcrest Foundation", commitment: "$750K verbal indication - diligence pending" },
+    ],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /Omar Singh/);
+  assert.match(result.answer, /\$750K verbal indication - diligence pending/);
+  assert.doesNotMatch(result.answer, /Nora Ellis/);
+  assert.doesNotMatch(result.answer, /Maya Chen/);
+  assert.doesNotMatch(result.answer, /No commitment yet.*commitment evidence present/);
+});
+
+test("Ask LP Brain closest-to-commit returns max five records", () => {
+  const result = groundedWorkspaceAnswer("Which LPs are closest to committing, based only on evidence in my workspace?", {
+    lpProfiles: Array.from({ length: 7 }, (_, index) => ({ name: `LP ${index + 1}`, organization: `Org ${index + 1}`, commitment: "$250K verbal indication" })),
+  });
+  assert.ok(result);
+  assert.match(result.answer, /\+ 2 more commitment-stage records in workspace/);
+  assert.doesNotMatch(result.answer, /LP 6/);
+});
+
+test("Ask LP Brain cold section returns max five records", () => {
+  const result = groundedWorkspaceAnswer("Which LP relationships are going cold?", {
+    lpProfiles: Array.from({ length: 7 }, (_, index) => ({ name: `Cold LP ${index + 1}`, organization: `Org ${index + 1}`, status: "Cold" })),
+  });
+  assert.ok(result);
+  assert.match(result.answer, /## Relationships Currently Marked Cold/);
+  assert.match(result.answer, /\+ 2 more cold records in workspace/);
+  assert.doesNotMatch(result.answer, /Cold LP 6/);
+});
+
+test("Ask LP Brain follow-up section does not dump undated records", () => {
+  const result = groundedWorkspaceAnswer("Who needs a follow-up today?", {
+    currentDateIso: "2026-08-17T12:00:00.000Z",
+    lpProfiles: Array.from({ length: 7 }, (_, index) => ({ name: `Undated LP ${index + 1}`, organization: `Org ${index + 1}`, nextAction: "Send update" })),
+  });
+  assert.ok(result);
+  assert.match(result.answer, /\+ 2 more undated next actions in workspace/);
+  assert.doesNotMatch(result.answer, /Undated LP 6/);
+});
+
+test("Ask LP Brain objections return max five categories without meeting-history dump", () => {
+  const result = groundedWorkspaceAnswer("What are the biggest objections across my LP conversations?", {
+    lpProfiles: Array.from({ length: 7 }, (_, index) => ({
+      name: `LP ${index + 1}`,
+      organization: `Org ${index + 1}`,
+      concern: `Objection ${index + 1}`,
+      meetings: [{ note: "Long meeting history should not be treated as an objection or dumped into the answer." }],
+    })),
+  });
+  assert.ok(result);
+  assert.match(result.answer, /\+ 2 more objection categories in workspace/);
+  assert.doesNotMatch(result.answer, /Objection 6/);
+  assert.doesNotMatch(result.answer, /Long meeting history/);
+});
+
+test("Ask LP Brain compound response remains concise", () => {
+  const result = groundedWorkspaceAnswer("Who are my top 5 LPs to focus on this week, and why? Which LP relationships are going cold? Who needs a follow-up today? What are the biggest objections across my LP conversations? Which LPs are closest to committing, based only on evidence in my workspace?", {
+    currentDateIso: "2026-08-17T12:00:00.000Z",
+    lpProfiles: Array.from({ length: 8 }, (_, index) => ({ id: `lp-${index}`, name: `LP ${index + 1}`, organization: `Org ${index + 1}`, status: index % 2 ? "Cold" : "Diligence", strength: 80 - index, nextAction: "Follow up", due: index === 0 ? "2026-08-17" : "", concern: `Objection ${index + 1}`, commitment: index < 6 ? "$250K verbal indication" : "No commitment yet" })),
+  });
+  assert.ok(result);
+  assert.ok(result.answer.length < 3500);
+  assert.doesNotMatch(result.answer, /\b1000000\b|\b250000\b|\b750000\b/);
+});
+
+test("Ask LP Brain markdown headings render through isolated chat component", () => {
+  const source = readFileSync(new URL("../components/lp-chat-message.tsx", import.meta.url), "utf8");
+  assert.match(source, /type: "heading"/);
+  assert.match(source, /<h3/);
+  assert.match(source, /trimmed\.startsWith\("## "\)/);
 });

@@ -66,6 +66,18 @@
   color: #25314f;
 }
 
+.lpbChatMarkdown h3 {
+  margin: 12px 0 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 700;
+  color: #25314f;
+}
+
+.lpbChatMarkdown h3:first-child {
+  margin-top: 0;
+}
+
 .lpbChatMarkdown ul,
 .lpbChatMarkdown ol {
   margin: 0 0 8px 16px;
