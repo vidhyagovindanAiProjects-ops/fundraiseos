@@ -239,8 +239,8 @@ test("Ask LP Brain does not call undated next action due today", () => {
     lpProfiles: [{ name: "Nora Ellis", organization: "Blue River Office", nextAction: "Send data room access" }],
   });
   assert.ok(result);
-  assert.match(result.answer, /no follow-up is supported as due today/);
-  assert.match(result.answer, /without usable factual due dates/);
+  assert.match(result.answer, /No LP follow-ups have a factual due date of today or earlier/);
+  assert.match(result.answer, /Not counted as due today because no factual ISO due date exists/);
   assert.doesNotMatch(result.answer, /Nora Ellis.*due today/i);
 });
 
@@ -250,7 +250,7 @@ test("Ask LP Brain identifies actual overdue action with date", () => {
     lpProfiles: [{ name: "Nora Ellis", organization: "Blue River Office", nextAction: "Send data room access", due: "2026-08-15" }],
   });
   assert.ok(result);
-  assert.match(result.answer, /Overdue workspace facts/);
+  assert.match(result.answer, /Overdue:/);
   assert.match(result.answer, /2026-08-15/);
 });
 
@@ -260,8 +260,8 @@ test("Ask LP Brain does not call future action overdue", () => {
     lpProfiles: [{ name: "Nora Ellis", organization: "Blue River Office", nextAction: "Send data room access", due: "2026-08-20" }],
   });
   assert.ok(result);
-  assert.match(result.answer, /no follow-up is supported as due today/);
-  assert.doesNotMatch(result.answer, /Overdue workspace facts/);
+  assert.match(result.answer, /No LP follow-ups have a factual due date of today or earlier/);
+  assert.doesNotMatch(result.answer, /Overdue:/);
   assert.doesNotMatch(result.answer, /Nora Ellis.*overdue/i);
 });
 
@@ -307,4 +307,69 @@ test("Ask LP Brain relative date strings cannot create absolute due-today claims
   assert.match(result.answer, /relative date text/);
   assert.match(result.answer, /Insufficient workspace evidence/);
   assert.doesNotMatch(result.answer, /Nora Ellis.*due today/i);
+});
+
+test("Ask LP Brain compound request returns all five deterministic sections", () => {
+  const result = groundedWorkspaceAnswer("Who are my top 5 LPs to focus on this week, and why? Which LP relationships are going cold? Who needs a follow-up today? What are the biggest objections across my LP conversations? Which LPs are closest to committing, based only on evidence in my workspace?", {
+    currentDateIso: "2026-08-17T12:00:00.000Z",
+    lpProfiles: [
+      { id: "lp-nora", name: "Nora Ellis", organization: "Blue River Office", status: "Diligence", strength: 90, nextAction: "Send data room access", due: "2026-08-17", concern: "Attribution clarity", commitment: "1000000 verbal indication - diligence pending" },
+      { id: "lp-maya", name: "Maya Chen", organization: "River Family Office", status: "Cold", strength: 40, nextAction: "Send quarterly update", due: "2026-08-15", concern: "Track record depth", commitmentAmount: 250000 },
+      { id: "lp-omar", name: "Omar Singh", organization: "Hillcrest Foundation", status: "Warm", strength: 55, nextAction: "Share references" },
+    ],
+    relationshipIntelligence: { fitResults: { "lp-nora": { score: 94 }, "lp-maya": { score: 72 }, "lp-omar": { score: 60 } } },
+  });
+  assert.ok(result);
+  for (const title of ["Top 5 to Focus on This Week", "Relationships Going Cold", "Follow-ups Due / Overdue", "Biggest Objections", "Closest to Commitment"]) {
+    assert.match(result.answer, new RegExp(`## ${title}`));
+  }
+  assert.match(result.reason, /evidence_based_prioritization/);
+  assert.match(result.reason, /cold_relationship_detection/);
+  assert.match(result.reason, /follow_up_today_grounding/);
+  assert.match(result.reason, /objection_aggregation/);
+  assert.match(result.reason, /commitment_stage_grounding/);
+});
+
+test("Ask LP Brain compound routing does not drop later supported intents", () => {
+  const result = groundedWorkspaceAnswer("Who are my top LPs and what objections came up?", {
+    lpProfiles: [{ id: "lp-nora", name: "Nora Ellis", organization: "Blue River Office", strength: 80, concern: "Attribution clarity" }],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /## Top 5 to Focus on This Week/);
+  assert.match(result.answer, /## Biggest Objections/);
+});
+
+test("Ask LP Brain formats raw money values in deterministic answers", () => {
+  const result = groundedWorkspaceAnswer("Which LPs are closest to committing, based only on evidence in my workspace?", {
+    lpProfiles: [
+      { name: "Nora Ellis", organization: "Blue River Office", commitmentAmount: 1000000, status: "Committed" },
+      { name: "Maya Chen", organization: "River Family Office", commitmentAmount: 250000, status: "Soft circle" },
+    ],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /\$1M/);
+  assert.match(result.answer, /\$250K/);
+  assert.doesNotMatch(result.answer, /\b1000000\b/);
+  assert.doesNotMatch(result.answer, /\b250000\b/);
+});
+
+test("Ask LP Brain same LP in multiple sections does not leak facts to another LP", () => {
+  const result = groundedWorkspaceAnswer("Who are my top 5 LPs to focus on this week, and why? What are the biggest objections across my LP conversations? Which LPs are closest to committing, based only on evidence in my workspace?", {
+    currentDateIso: "2026-08-17T12:00:00.000Z",
+    lpProfiles: [
+      { id: "lp-nora", name: "Nora Ellis", organization: "Blue River Office", strength: 90, due: "2026-08-17", nextAction: "Send data room access", commitment: "$1M verbal indication - diligence pending" },
+      { id: "lp-maya", name: "Maya Chen", organization: "River Family Office", strength: 70, concern: "Attribution clarity" },
+    ],
+  });
+  assert.ok(result);
+  assert.match(result.answer, /Nora Ellis/);
+  assert.match(result.answer, /Maya Chen/);
+  const objectionSection = result.answer.split("## Biggest Objections")[1].split("## Closest to Commitment")[0];
+  assert.match(objectionSection, /Attribution clarity/);
+  assert.match(objectionSection, /Maya Chen/);
+  assert.doesNotMatch(objectionSection, /Nora Ellis/);
+  const commitmentSection = result.answer.split("## Closest to Commitment")[1];
+  assert.match(commitmentSection, /Nora Ellis/);
+  assert.match(commitmentSection, /verbal indication/);
+  assert.doesNotMatch(commitmentSection, /Maya Chen/);
 });
